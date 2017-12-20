@@ -19,6 +19,9 @@ import logging
 
 import tensorflow as tf
 from google.protobuf import text_format
+
+import sys
+sys.path.insert(0, './')
 from object_detection.protos import string_int_label_map_pb2
 
 

@@ -1,0 +1,1 @@
+python object_detection/dataset_tools/create_kitti_tf_record.py --label_map_path object_detection/data/kitti_label_map.pbtxt --data_dir /media/malte/samba_share/KITTI --output_path /media/malte/samba_share/KITTI/tfrecord/kitti.record

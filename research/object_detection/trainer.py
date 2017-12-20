@@ -30,6 +30,8 @@ from object_detection.core import preprocessor
 from object_detection.core import standard_fields as fields
 from object_detection.utils import ops as util_ops
 from object_detection.utils import variables_helper
+import sys
+sys.path.insert(0, './slim/')
 from deployment import model_deploy
 
 slim = tf.contrib.slim
