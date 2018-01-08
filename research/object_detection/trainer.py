@@ -293,8 +293,8 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
         train_tensor = tf.identity(total_loss, name='train_op')
 
     # Add summaries.
-    for model_var in slim.get_model_variables():
-      global_summaries.add(tf.summary.histogram(model_var.op.name, model_var))
+#    for model_var in slim.get_model_variables():
+#      global_summaries.add(tf.summary.histogram(model_var.op.name, model_var))
     for loss_tensor in tf.losses.get_losses():
       global_summaries.add(tf.summary.scalar(loss_tensor.op.name, loss_tensor))
     global_summaries.add(
