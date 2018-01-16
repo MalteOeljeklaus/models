@@ -111,13 +111,17 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
   val_writer = tf.python_io.TFRecordWriter('%s_val.tfrecord'%
                                            output_path)
 
-  images = sorted(tf.gfile.ListDirectory(image_dir))
-  images.append(sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2')))
+  images = sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2'))
+  images = images + sorted(tf.gfile.ListDirectory(image_dir))
+#  images = images + sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2'))
   for img_name in images:
     if 'seg_' in img_name:
         continue
 
     print(img_name)
+    
+    if 'u' in img_name:
+      img_name = img_name.split('_')[1]
 
     img_num = int(img_name.split('.')[0])
     is_validation_img = img_num < validation_set_size
@@ -187,7 +191,7 @@ def prepare_example(image_path, annotations, label_map_dict):
     difficult_obj = -1
   
 
-  numpy_segmentation_map = np.ones(image.shape, dtype=np.float)*255.0 # default to ignore label
+  numpy_segmentation_map = np.ones([height, width], dtype=np.float)*255.0 # default to ignore label
 
   dirname, filename = os.path.split(image_path)
   if not os.path.isfile(os.path.join(dirname, 'seg_'+filename)):
