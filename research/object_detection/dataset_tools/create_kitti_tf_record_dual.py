@@ -114,6 +114,11 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
   images = sorted(tf.gfile.ListDirectory(image_dir))
   images.append(sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2')))
   for img_name in images:
+    if 'seg_' in img_name:
+        continue
+
+    print(img_name)
+
     img_num = int(img_name.split('.')[0])
     is_validation_img = img_num < validation_set_size
     
