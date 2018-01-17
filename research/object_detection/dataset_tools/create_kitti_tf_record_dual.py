@@ -44,6 +44,8 @@ import numpy as np
 import PIL.Image as pil
 import tensorflow as tf
 
+from random import shuffle
+
 import sys
 sys.path.insert(0, './')
 from object_detection.utils import dataset_util
@@ -105,15 +107,19 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
                            'data_object_image_2',
                            'training',
                            'image_2')
+  road_dir = '/media/malte/samba_share/KITTI/data_road/training/image_2'
 
   train_writer = tf.python_io.TFRecordWriter('%s_train.tfrecord'%
                                              output_path)
   val_writer = tf.python_io.TFRecordWriter('%s_val.tfrecord'%
                                            output_path)
 
-  images = sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2'))
+  images = sorted(tf.gfile.ListDirectory(road_dir))
   images = images + sorted(tf.gfile.ListDirectory(image_dir))
 #  images = images + sorted(tf.gfile.ListDirectory('/media/malte/samba_share/KITTI/data_road/training/image_2'))
+  
+  shuffle(images)
+  
   for img_name in images:
     if 'seg_' in img_name:
         continue
@@ -121,21 +127,25 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
     print(img_name)
     
     if 'u' in img_name:
-      img_name = img_name.split('_')[1]
-
-    img_num = int(img_name.split('.')[0])
+      img_num = int(img_name.split('_')[1].split('.')[0])
+    else:
+      img_num = int(img_name.split('.')[0])
+      
     is_validation_img = img_num < validation_set_size
     
-    if os.path.isfile(os.path.join(annotation_dir,str(img_num).zfill(6)+'.txt')):
+    if not 'u' in img_name and os.path.isfile(os.path.join(annotation_dir,str(img_num).zfill(6)+'.txt')):
       img_anno = read_annotation_file(os.path.join(annotation_dir,str(img_num).zfill(6)+'.txt'))
       # Filter all bounding boxes of this frame that are of a legal class, and
       # don't overlap with a dontcare region.
       # TODO(talremez) filter out targets that are truncated or heavily occluded.
       annotation_for_image = filter_annotations(img_anno, classes_to_use)
     else:
-      annotation_for_image = []  
+      annotation_for_image = {}
 
-    image_path = os.path.join(image_dir, img_name)
+    if 'u' in img_name:
+      image_path = os.path.join(road_dir, img_name)
+    else:
+      image_path = os.path.join(image_dir, img_name)
 
 
     example = prepare_example(image_path, annotation_for_image, label_map_dict)
@@ -174,6 +184,9 @@ def prepare_example(image_path, annotations, label_map_dict):
   height = int(image.shape[0])
   present_label_indicator = 0
   
+#  print(len(annotations))
+#  print(present_label_indicator)
+  
   if len(annotations)>0:
     present_label_indicator = 1
     xmin_norm = annotations['2d_bbox_left'] / float(width)
@@ -183,12 +196,23 @@ def prepare_example(image_path, annotations, label_map_dict):
 
     difficult_obj = [0]*len(xmin_norm)
   else:
-    xmin_norm = -1
-    ymin_norm = -1
-    xmax_norm = -1
-    ymax_norm = -1
+    xmin_norm = [-1]
+    ymin_norm = [-1]
+    xmax_norm = [-1]
+    ymax_norm = [-1]
+    annotations['type']=''
+
+    annotations['truncated']=[-1]
+    annotations['alpha']=[-1]
+    annotations['3d_bbox_height']=[-1]
+    annotations['3d_bbox_width']=[-1]
+    annotations['3d_bbox_length']=[-1]
+    annotations['3d_bbox_x']=[-1]
+    annotations['3d_bbox_y']=[-1]
+    annotations['3d_bbox_z']=[-1]
+    annotations['3d_bbox_rot_y']=[-1]
     
-    difficult_obj = -1
+    difficult_obj = [-1]
   
 
   numpy_segmentation_map = np.ones([height, width], dtype=np.float)*255.0 # default to ignore label
