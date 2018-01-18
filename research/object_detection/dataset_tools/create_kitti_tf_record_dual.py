@@ -273,7 +273,10 @@ def prepare_example(image_path, annotations, label_map_dict):
 #      'image/seg/filename': dataset_util.bytes_feature(image_path.encode('utf8')),
 #      'image/seg/source_id': dataset_util.bytes_feature(image_path.encode('utf8')),
       'image/seg/key/sha256': dataset_util.bytes_feature(seg_key.encode('utf8')),
-      'image/seg/numpy_segmentation_map': dataset_util.bytes_feature(numpy_segmentation_map.tobytes()),
+#      'image/seg/numpy_segmentation_map': dataset_util.bytes_feature(numpy_segmentation_map.tobytes()),
+      'image/seg/numpy_segmentation_map': dataset_util.float_list_feature(np.reshape(numpy_segmentation_map,[-1]).tolist()),
+#      'image/seg/numpy_segmentation_map': dataset_util.int64_feature(tf.convert_to_tensor(numpy_segmentation_map, dtype=tf.int64,name='segmentation_map_gt')),
+#      'image/seg/numpy_segmentation_map': dataset_util.int64_feature(numpy_segmentation_map),
       'image/seg/format': dataset_util.bytes_feature('numpy'.encode('utf8')),
 
       'image/object/bbox/xmin': dataset_util.float_list_feature(xmin_norm),
