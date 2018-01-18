@@ -26,6 +26,7 @@ that wraps the build function.
 import tensorflow as tf
 
 from object_detection.data_decoders import tf_example_decoder
+from object_detection.data_decoders import tf_fcn_example_decoder
 from object_detection.protos import input_reader_pb2
 
 parallel_reader = tf.contrib.slim.parallel_reader
@@ -67,9 +68,15 @@ def build(input_reader_config):
     label_map_proto_file = None
     if input_reader_config.HasField('label_map_path'):
       label_map_proto_file = input_reader_config.label_map_path
-    decoder = tf_example_decoder.TfExampleDecoder(
-        load_instance_masks=input_reader_config.load_instance_masks,
-        label_map_proto_file=label_map_proto_file)
+    if input_reader_config.HasField('is_fcn') and input_reader_config.is_fcn:
+      decoder = tf_fcn_example_decoder.TfFCNExampleDecoder(
+          load_instance_masks=input_reader_config.load_instance_masks,
+          label_map_proto_file=label_map_proto_file)
+    else:
+      decoder = tf_example_decoder.TfExampleDecoder(
+          load_instance_masks=input_reader_config.load_instance_masks,
+          label_map_proto_file=label_map_proto_file)
+
     return decoder.decode(string_tensor)
 
   raise ValueError('Unsupported input_reader_config.')

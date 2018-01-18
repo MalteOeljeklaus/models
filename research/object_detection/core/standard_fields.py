@@ -203,3 +203,22 @@ class TfExampleFields(object):
   detection_bbox_ymax = 'image/detection/bbox/ymax'
   detection_bbox_xmax = 'image/detection/bbox/xmax'
   detection_score = 'image/detection/score'
+
+
+
+class FCNExtensionFields(object):
+  """TF-example proto feature names for FCN multi task architecture extension (segmentation).
+
+  Holds the standard feature names to load from an Example proto for FCN multi
+  task architecture extension (segmentation).
+
+  Attributes:
+    TODO
+  """
+
+  present_label_indicator = 'present_label_indicator'
+  seg_height = 'image/seg/height'
+  seg_width = 'image/seg/width'
+  seg_key = 'image/seg/key/sha256'
+  numpy_segmentation_map = 'image/seg/numpy_segmentation_map'
+  seg_format = 'image/seg/format'

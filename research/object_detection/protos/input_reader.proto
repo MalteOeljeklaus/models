@@ -41,6 +41,9 @@ message InputReader {
   // Whether to load groundtruth instance masks.
   optional bool load_instance_masks = 7 [default = false];
 
+  // Whether to use multitask fcn+bb dataset decoder
+  optional bool is_fcn = 127 [default = false];
+
   oneof input_reader {
     TFRecordInputReader tf_record_input_reader = 8;
     ExternalInputReader external_input_reader = 9;
