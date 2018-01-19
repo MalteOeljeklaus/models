@@ -120,6 +120,7 @@ class FCNSSDMetaArch(model.DetectionModel):
                localization_loss,
                classification_loss_weight,
                localization_loss_weight,
+               segmentation_loss_weight,
                normalize_loss_by_num_matches,
                hard_example_miner,
                add_summaries=True):
@@ -156,6 +157,7 @@ class FCNSSDMetaArch(model.DetectionModel):
       classification_loss: an object_detection.core.losses.Loss object.
       localization_loss: a object_detection.core.losses.Loss object.
       classification_loss_weight: float
+      segmentation_loss_weight: float
       localization_loss_weight: float
       normalize_loss_by_num_matches: boolean
       hard_example_miner: a losses.HardExampleMiner object (can be None)
@@ -191,6 +193,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     self._classification_loss = classification_loss
     self._localization_loss = localization_loss
     self._classification_loss_weight = classification_loss_weight
+    self._segmentation_loss_weight = segmentation_loss_weight
     self._localization_loss_weight = localization_loss_weight
     self._normalize_loss_by_num_matches = normalize_loss_by_num_matches
     self._hard_example_miner = hard_example_miner
@@ -274,14 +277,15 @@ class FCNSSDMetaArch(model.DetectionModel):
     (box_encodings, class_predictions_with_background
     ) = self._add_box_predictions_to_feature_maps(feature_maps)
     
-    segmentation_predictions = self._fcn_dense_output_generator(preprocessed_inputs, fcn_feature_maps)
+    segmentation_predictions, segmentation_logits = self._fcn_dense_output_generator(preprocessed_inputs, fcn_feature_maps)
     
     predictions_dict = {
         'box_encodings': box_encodings,
         'class_predictions_with_background': class_predictions_with_background,
         'feature_maps': feature_maps,
         'anchors': self._anchors.get(),
-        'segmentation': segmentation_predictions
+        'segmentation_scores': segmentation_predictions,
+        'segmentation_scores_flat': segmentation_logits
     }
     return predictions_dict
 
@@ -453,6 +457,15 @@ class FCNSSDMetaArch(model.DetectionModel):
         values.
     """
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
+      segmentation_present = tf.greater_equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(2.0))
+      bb_present = tf.logical_or(
+              tf.equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(1.0)),
+              tf.equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(3.0)))
+      
+      segmentation_present = tf.cond(segmentation_present, tf.Constant(1.0), tf.Constant(0.0))
+      bb_present = tf.cond(bb_present, tf.Constant(1.0), tf.Constant(0.0))
+
+        
       keypoints = None
       if self.groundtruth_has_field(fields.BoxListFields.keypoints):
         keypoints = self.groundtruth_lists(fields.BoxListFields.keypoints)
@@ -488,9 +501,28 @@ class FCNSSDMetaArch(model.DetectionModel):
           flattened_classification_losses = tf.reshape(cls_losses, [-1])
           self._summarize_anchor_classification_loss(
               flattened_class_ids, flattened_classification_losses)
-        localization_loss = tf.reduce_sum(location_losses)
-        classification_loss = tf.reduce_sum(cls_losses)
+        localization_loss = bb_present*tf.reduce_sum(location_losses)
+        classification_loss = bb_present*tf.reduce_sum(cls_losses)
 
+      # expand labels into onehot representation
+      labels_expanded = tf.zeros([])
+      for i in np.arange(0,self.num_classes,1): # expand labels
+        labels_expanded = tf.stack([labels_expanded,
+                 tf.where(tf.equal(fields.FCNExtensionFields.numpy_segmentation_map,tf.Constant(tf.float(i))),
+                   tf.ones(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)),
+                   tf.zeros(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)))],
+                 axis=3)
+
+      # add unknown class
+      labels_expanded = tf.stack([labels_expanded,
+               tf.where(tf.equal(fields.FCNExtensionFields.numpy_segmentation_map,tf.Constant(255.0)),
+                 tf.ones(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)),
+                 tf.zeros(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)))],
+               axis=3)
+      
+      # compute segmentation loss
+      segmentation_loss = segmentation_present*self._cross_entropy_loss(prediction_dict['segmentation_scores'], labels_expanded)
+      
       # Optionally normalize by number of positive matches
       normalizer = tf.constant(1.0, dtype=tf.float32)
       if self._normalize_loss_by_num_matches:
@@ -502,10 +534,14 @@ class FCNSSDMetaArch(model.DetectionModel):
       with tf.name_scope('classification_loss'):
         classification_loss = ((self._classification_loss_weight / normalizer) *
                                classification_loss)
+      with tf.name_scope('segmentation_loss'):
+        segmentation_loss = ((self._segmentation_loss_weight / normalizer) *
+                               segmentation_loss)
 
       loss_dict = {
           'localization_loss': localization_loss,
-          'classification_loss': classification_loss
+          'classification_loss': classification_loss,
+          'segmentation_loss': segmentation_loss
       }
     return loss_dict
 
@@ -842,8 +878,73 @@ class FCNSSDMetaArch(model.DetectionModel):
                                                         method=tf.image.ResizeMethod.BILINEAR,
                                                         align_corners=True)
 
-#      logits = tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, redim_sz[3]))
+      logits = tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, redim_sz[3]))
 
       prediction = upsample_s8_final_resize
 
-    return prediction
+    return prediction, logits
+
+  def _cross_entropy_loss(self, scores, label, has_unknown=True):#, num_classes=2, ignore_label=255):
+    # add the cross entropy loss function to define the optimization problem
+#    with tf.contrib.slim.arg_scope(arg_scope):
+      with tf.variable_scope('cross_entropy_loss'):
+#          unknown = tf.slice(label, [0,0,0,num_classes],[1,1024,2048,1]) # TODO: this will break with batch_size != 1
+#          print(unknown.name)
+#          tf.summary.image(unknown.name, tf.cast(tf.reshape(unknown,[1,1024,2048,1]),tf.float32), max_outputs=3)
+#          label = tf.slice(label, [0,0,0,0],[1,1024,2048,num_classes])     # TODO: this will break with batch_size != 1
+          #logits = tf.where(unknown>0, 1e30*tf.ones_like(logits), logits)   # see http://stackoverflow.com/a/41956383
+#          unknown = tf.cast(unknown, tf.float32)
+#          unknown = tf.scalar_mul(1e30, unknown)
+#          print(logits.name)
+#          print(unknown.name)
+#          logits = tf.reshape(tensor=logits, shape=(1,1024,2048,num_classes)) # TODO: don't hardcode dimensions
+#          logits = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
+
+          batch_size = label.get_shape()[0].value
+
+          height = label.get_shape()[1].value
+          width = label.get_shape()[2].value
+
+          num_classes = label.get_shape()[3].value
+          
+          if has_unknown:
+            unknown = tf.slice(label, [0,0,0,num_classes],[batch_size,height,width,1])
+            unknown = tf.scalar_mul(1e30, unknown)
+            scores = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
+            logits = tf.reshape(tensor=scores, shape=(-1, num_classes+1))
+            label = tf.reshape(tensor=label, shape=(-1, num_classes+1))
+          else:
+            logits = tf.reshape(tensor=logits, shape=(-1, num_classes))
+            label = tf.reshape(tensor=label, shape=(-1, num_classes))
+            
+#          class_weight = tf.constant([0.5,2,0.5,2,2,2,4,4,0.5,2,2,2,4,0.5,4,4,4,4,4,1]) # TODO: make configurable
+#          class_weight = tf.reshape(tensor=class_weight, shape=(1,num_classes+1))
+#          print(class_weight.get_shape())
+#          print(flat_labels.get_shape())
+#          weight_per_label = tf.transpose(tf.matmul(tf.cast(flat_labels,tf.float32), tf.transpose(tf.cast(class_weight,tf.float32) ) ) )
+#          print(weight_per_label.get_shape())
+
+          cross_entropies = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=label) # see http://stackoverflow.com/a/38912982
+#          cross_entropies = tf.multiply(weight_per_label, cross_entropies)
+#          print(cross_entropies.get_shape())
+
+          #cross_entropies = tf.mul(weights_per_label, cross_entropies)
+          cross_entropies = tf.reduce_sum(cross_entropies)
+          cross_entropies = tf.scalar_mul((1.0/(height*width)), cross_entropies) # normalize
+#          cross_entropy_sum = tf.scalar_mul((1.0/(label.get_shape()[0].value*label.get_shape()[1].value)), cross_entropy_sum) # normalize
+      return cross_entropies
+
+  def provide_segmentation_groundtruth(self,
+                          segmentation_gt):
+    """Provide segmentation groundtruth.
+
+    Args:
+      segmentation_gt:
+    """
+    assert(len(segmentation_gt)==6)
+    self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator] = segmentation_gt[0]
+    self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map] = segmentation_gt[1]
+    self._groundtruth_lists[fields.FCNExtensionFields.seg_width] = segmentation_gt[2]
+    self._groundtruth_lists[fields.FCNExtensionFields.seg_height] = segmentation_gt[3]
+    self._groundtruth_lists[fields.FCNExtensionFields.seg_format] = segmentation_gt[4]
+    self._groundtruth_lists[fields.FCNExtensionFields.seg_key] = segmentation_gt[5]

@@ -21,7 +21,12 @@ DetectionModel.
 
 import functools
 
+import numpy as np
+
 import tensorflow as tf
+
+import abc
+import object_detection.meta_architectures.fcn_ssd_meta_arch as fcn_ssd_meta_arch
 
 from object_detection.builders import optimizer_builder
 from object_detection.builders import preprocessor_builder
@@ -131,13 +136,28 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
           indices=classes_gt, depth=num_classes, left_pad=0)
     masks_gt = read_data.get(fields.InputDataFields.groundtruth_instance_masks)
     keypoints_gt = read_data.get(fields.InputDataFields.groundtruth_keypoints)
+
+    if fields.FCNExtensionFields.present_label_indicator in read_data: # segmentation fields present in dataset -> read them
+      present_label_indicator = read_data.get(fields.FCNExtensionFields.present_label_indicator)
+      seg_width = read_data.get(fields.FCNExtensionFields.seg_width)
+      seg_height = read_data.get(fields.FCNExtensionFields.seg_height)
+      seg_format = read_data.get(fields.FCNExtensionFields.seg_format)
+      seg_key = read_data.get(fields.FCNExtensionFields.seg_key)
+      numpy_segmentation_map = read_data.get(fields.FCNExtensionFields.numpy_segmentation_map)
+      numpy_segmentation_map = np.asarray(numpy_segmentation_map)
+      if present_label_indicator >= 2: # segmentation is actually present
+        numpy_segmentation_map = np.reshape(numpy_segmentation_map,[seg_height, seg_width])
+      
+      segmentation_gt = [present_label_indicator, numpy_segmentation_map, seg_width, seg_height, seg_format, seg_key]
+      return image, key, location_gt, classes_gt, masks_gt, keypoints_gt, segmentation_gt
+
+
     if (merge_multiple_label_boxes and (
         masks_gt is not None or keypoints_gt is not None)):
       raise NotImplementedError('Multi-label support is only for boxes.')
     return image, key, location_gt, classes_gt, masks_gt, keypoints_gt
 
   return zip(*map(extract_images_and_targets, read_data_list))
-
 
 def _create_losses(input_queue, create_model_fn, train_config):
   """Creates loss function for a DetectionModel.
@@ -148,11 +168,21 @@ def _create_losses(input_queue, create_model_fn, train_config):
     train_config: a train_pb2.TrainConfig protobuf.
   """
   detection_model = create_model_fn()
-  (images, _, groundtruth_boxes_list, groundtruth_classes_list,
-   groundtruth_masks_list, groundtruth_keypoints_list) = get_inputs(
-       input_queue,
-       detection_model.num_classes,
-       train_config.merge_multiple_label_boxes)
+  
+  if abc.isinstance(detection_model, fcn_ssd_meta_arch.FCNSSDMetaArch): # TODO: how to check for segmentation dataset here?
+    (images, _, groundtruth_boxes_list, groundtruth_classes_list,
+     groundtruth_masks_list, groundtruth_keypoints_list, segmentation_gt) = get_inputs(
+         input_queue,
+         detection_model.num_classes,
+         train_config.merge_multiple_label_boxes)
+    detection_model.provide_segmentation_groundtruth(segmentation_gt)
+  else:  
+    (images, _, groundtruth_boxes_list, groundtruth_classes_list,
+     groundtruth_masks_list, groundtruth_keypoints_list) = get_inputs(
+         input_queue,
+         detection_model.num_classes,
+         train_config.merge_multiple_label_boxes)
+
   images = [detection_model.preprocess(image) for image in images]
   images = tf.concat(images, 0)
   if any(mask is None for mask in groundtruth_masks_list):
