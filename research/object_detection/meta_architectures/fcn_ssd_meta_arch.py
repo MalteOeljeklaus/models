@@ -805,8 +805,8 @@ class FCNSSDMetaArch(model.DetectionModel):
       f_shape = [ksize, ksize, in_features, in_features]
       weights = self._get_deconv_filter(f_shape)
       new_shape = [tf.shape(feature_maps[0])[0],
-                   feature_maps[1].get_shape()[1].value,
-                   feature_maps[1].get_shape()[2].value,
+                   feature_maps[1].get_shape()[1].value+2,
+                   feature_maps[1].get_shape()[2].value+2,
                    in_features]          
 
       upsample_s32_deconvlayer = tf.nn.conv2d_transpose(redim_s32_convlayer,
@@ -838,8 +838,8 @@ class FCNSSDMetaArch(model.DetectionModel):
       weights = self._get_deconv_filter(f_shape)
 
       new_shape = [tf.shape(feature_maps[1])[0],
-                   feature_maps[2].get_shape()[1].value+1,
-                   feature_maps[2].get_shape()[2].value+1,
+                   feature_maps[2].get_shape()[1].value+3, # TODO: make this work dynamically
+                   feature_maps[2].get_shape()[2].value+2,
                    in_features]
                     
       upsample_s16_deconvlayer = tf.nn.conv2d_transpose(redim_s16_fuse,
@@ -847,7 +847,11 @@ class FCNSSDMetaArch(model.DetectionModel):
                                                         output_shape=tf.stack(new_shape),
                                                         strides=strides,
                                                         padding='VALID')
-#      upsample_s16_deconvlayer = tf.image.resize_images(upsample_s16_deconvlayer, (125,253)) # TODO: fix this
+
+#      upsample_s16_deconvlayer = tf.image.resize_images(upsample_s16_deconvlayer,
+#                                                        [tf.shape(feature_maps[2])[1],tf.shape(feature_maps[2])[2]],
+#                                                        method=tf.image.ResizeMethod.BILINEAR,
+#                                                        align_corners=True)
 
     with tf.variable_scope('8stride'):
       redim_s8_convlayer = slim.conv2d(feature_maps[2], redim_sz[2], 1,
