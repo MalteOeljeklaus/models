@@ -927,15 +927,33 @@ class FCNSSDMetaArch(model.DetectionModel):
 #          logits = tf.reshape(tensor=logits, shape=(1,1024,2048,num_classes)) # TODO: don't hardcode dimensions
 #          logits = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
 
-          batch_size = label.get_shape()[0].value
-
-          height = label.get_shape()[1].value
-          width = label.get_shape()[2].value
+#          batch_size = 1 # TODO: do not hardcode batch size
+          #batch_size = label.get_shape()[0].value
+          
+          height = self._groundtruth_lists[fields.FCNExtensionFields.seg_height]
+          width = self._groundtruth_lists[fields.FCNExtensionFields.seg_width]
+#          height = label.get_shape()[1]
+#          width = label.get_shape()[2]
+          
+#          print(height)
+#          print(width)
+#          print(label)
+          
+          #self._image_resizer_fn.
+          
+#          height = keys_to_tensors['image/seg/height']
+#          width = keys_to_tensors['image/seg/width']
+#          to_shape = tf.cast(tf.stack([-1, height, width,1]), tf.int32)
+#          masks = keys_to_tensors['image/seg/numpy_segmentation_map']
+#          if isinstance(masks, tf.SparseTensor):
+#            masks = tf.sparse_tensor_to_dense(masks)
+#          masks = tf.reshape(tf.to_float(masks), to_shape)
+#    masks = tf.reshape(tf.to_float(tf.greater(masks, 0.0)), to_shape)
 
           num_classes = label.get_shape()[3].value
           
           if has_unknown:
-            unknown = tf.slice(label, [0,0,0,num_classes],[batch_size,height,width,1])
+            unknown = tf.slice(label, [0,0,0,num_classes],tf.cast(tf.stack([-1, height, width,1]), tf.int32))
             unknown = tf.scalar_mul(1e30, unknown)
             scores = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
             logits = tf.reshape(tensor=scores, shape=(-1, num_classes+1))
@@ -957,7 +975,7 @@ class FCNSSDMetaArch(model.DetectionModel):
 
           #cross_entropies = tf.mul(weights_per_label, cross_entropies)
           cross_entropies = tf.reduce_sum(cross_entropies)
-          cross_entropies = tf.scalar_mul((1.0/(height*width)), cross_entropies) # normalize
+          cross_entropies = tf.scalar_mul((1.0/(tf.cast(height, tf.float32)*tf.cast(width, tf.float32))), cross_entropies) # normalize
 #          cross_entropy_sum = tf.scalar_mul((1.0/(label.get_shape()[0].value*label.get_shape()[1].value)), cross_entropy_sum) # normalize
       return cross_entropies
 
