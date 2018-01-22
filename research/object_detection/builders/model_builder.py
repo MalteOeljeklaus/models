@@ -27,6 +27,7 @@ from object_detection.core import box_predictor
 from object_detection.meta_architectures import faster_rcnn_meta_arch
 from object_detection.meta_architectures import rfcn_meta_arch
 from object_detection.meta_architectures import ssd_meta_arch
+from object_detection.meta_architectures import fcn_ssd_meta_arch
 from object_detection.models import faster_rcnn_inception_resnet_v2_feature_extractor as frcnn_inc_res
 from object_detection.models import faster_rcnn_inception_v2_feature_extractor as frcnn_inc_v2
 from object_detection.models import faster_rcnn_nas_feature_extractor as frcnn_nas
@@ -34,6 +35,7 @@ from object_detection.models import faster_rcnn_resnet_v1_feature_extractor as f
 from object_detection.models.embedded_ssd_mobilenet_v1_feature_extractor import EmbeddedSSDMobileNetV1FeatureExtractor
 from object_detection.models.ssd_inception_v1_feature_extractor import SSDInceptionV1FeatureExtractor
 from object_detection.models.ssd_inception_v2_feature_extractor import SSDInceptionV2FeatureExtractor
+from object_detection.models.fcn_ssd_inception_v2_feature_extractor import FCNSSDInceptionV2FeatureExtractor
 from object_detection.models.ssd_inception_v3_feature_extractor import SSDInceptionV3FeatureExtractor
 from object_detection.models.ssd_mobilenet_v1_feature_extractor import SSDMobileNetV1FeatureExtractor
 from object_detection.protos import model_pb2
@@ -42,6 +44,7 @@ from object_detection.protos import model_pb2
 SSD_FEATURE_EXTRACTOR_CLASS_MAP = {
     'ssd_inception_v1': SSDInceptionV1FeatureExtractor,
     'ssd_inception_v2': SSDInceptionV2FeatureExtractor,
+    'fcn_ssd_inception_v2': FCNSSDInceptionV2FeatureExtractor,
     'ssd_inception_v3': SSDInceptionV3FeatureExtractor,
     'ssd_mobilenet_v1': SSDMobileNetV1FeatureExtractor,
     'embedded_ssd_mobilenet_v1': EmbeddedSSDMobileNetV1FeatureExtractor,
@@ -156,8 +159,30 @@ def _build_ssd_model(ssd_config, is_training):
    localization_weight,
    hard_example_miner) = losses_builder.build(ssd_config.loss)
   normalize_loss_by_num_matches = ssd_config.normalize_loss_by_num_matches
-
-  return ssd_meta_arch.SSDMetaArch(
+  
+  segmentation_loss_weight=1.0 # TODO: make configurable
+  
+  if 'fcn' in ssd_config.feature_extractor.type: # TODO: make a fcn_ssd meta architecture in proto
+    return fcn_ssd_meta_arch.FCNSSDMetaArch(
+      is_training,
+      anchor_generator,
+      ssd_box_predictor,
+      box_coder,
+      feature_extractor,
+      matcher,
+      region_similarity_calculator,
+      image_resizer_fn,
+      non_max_suppression_fn,
+      score_conversion_fn,
+      classification_loss,
+      localization_loss,
+      classification_weight,
+      localization_weight,
+      segmentation_loss_weight,
+      normalize_loss_by_num_matches,
+      hard_example_miner)
+  else:
+    return ssd_meta_arch.SSDMetaArch(
       is_training,
       anchor_generator,
       ssd_box_predictor,

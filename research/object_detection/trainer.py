@@ -143,12 +143,22 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
       seg_height = read_data.get(fields.FCNExtensionFields.seg_height)
       seg_format = read_data.get(fields.FCNExtensionFields.seg_format)
       seg_key = read_data.get(fields.FCNExtensionFields.seg_key)
-      numpy_segmentation_map = read_data.get(fields.FCNExtensionFields.numpy_segmentation_map)
-      numpy_segmentation_map = np.asarray(numpy_segmentation_map)
-      if present_label_indicator >= 2: # segmentation is actually present
-        numpy_segmentation_map = np.reshape(numpy_segmentation_map,[seg_height, seg_width])
+      segmentation_map = read_data.get(fields.FCNExtensionFields.numpy_segmentation_map)
+#      numpy_segmentation_map = np.asarray(numpy_segmentation_map)
+#      if present_label_indicator >= 2: # segmentation is actually present
+#        numpy_segmentation_map = np.reshape(numpy_segmentation_map,[seg_height, seg_width])
+#      print(seg_height)
+#      print(seg_width)
+#      print(type(seg_height))
+#      print(type(seg_width))
       
-      segmentation_gt = [present_label_indicator, numpy_segmentation_map, seg_width, seg_height, seg_format, seg_key]
+#      numpy_segmentation_map = tf.cond(tf.greater_equal(present_label_indicator, 2),
+#tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, redim_sz[3]))
+#                                       tf.reshape(numpy_segmentation_map,[-1, 100]),
+#                                       tf.zeros([]),
+#                                       tf.zeros([]))
+      
+      segmentation_gt = [present_label_indicator, segmentation_map, seg_width, seg_height, seg_format, seg_key]
       return image, key, location_gt, classes_gt, masks_gt, keypoints_gt, segmentation_gt
 
 
@@ -168,8 +178,7 @@ def _create_losses(input_queue, create_model_fn, train_config):
     train_config: a train_pb2.TrainConfig protobuf.
   """
   detection_model = create_model_fn()
-  
-  if abc.isinstance(detection_model, fcn_ssd_meta_arch.FCNSSDMetaArch): # TODO: how to check for segmentation dataset here?
+  if isinstance(detection_model, fcn_ssd_meta_arch.FCNSSDMetaArch): # TODO: how to check for segmentation dataset here?
     (images, _, groundtruth_boxes_list, groundtruth_classes_list,
      groundtruth_masks_list, groundtruth_keypoints_list, segmentation_gt) = get_inputs(
          input_queue,

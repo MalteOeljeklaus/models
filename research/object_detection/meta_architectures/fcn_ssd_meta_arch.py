@@ -204,6 +204,8 @@ class FCNSSDMetaArch(model.DetectionModel):
 
     self._anchors = None
     self._add_summaries = add_summaries
+    
+    self.num_segmentation_classes = 2 # TODO: make this configurable
 
   @property
   def anchors(self):
@@ -276,7 +278,7 @@ class FCNSSDMetaArch(model.DetectionModel):
         im_width=image_shape[2])
     (box_encodings, class_predictions_with_background
     ) = self._add_box_predictions_to_feature_maps(feature_maps)
-    
+
     segmentation_predictions, segmentation_logits = self._fcn_dense_output_generator(preprocessed_inputs, fcn_feature_maps)
     
     predictions_dict = {
@@ -457,13 +459,17 @@ class FCNSSDMetaArch(model.DetectionModel):
         values.
     """
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
-      segmentation_present = tf.greater_equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(2.0))
+
+#      print (type(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator]))
+#      print (self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator])
+#      print (dir(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator]))
+      segmentation_present = tf.greater_equal(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator], tf.constant(2, dtype=tf.int64))
       bb_present = tf.logical_or(
-              tf.equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(1.0)),
-              tf.equal(fields.FCNExtensionFields.present_label_indicator, tf.Constant(3.0)))
+              tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator], tf.constant(1, dtype=tf.int64)),
+              tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator], tf.constant(3, dtype=tf.int64)))
       
-      segmentation_present = tf.cond(segmentation_present, tf.Constant(1.0), tf.Constant(0.0))
-      bb_present = tf.cond(bb_present, tf.Constant(1.0), tf.Constant(0.0))
+      segmentation_present = tf.cond(segmentation_present, lambda: tf.constant(1.0), lambda: tf.constant(0.0))
+      bb_present = tf.cond(bb_present, lambda: tf.constant(1.0), lambda: tf.constant(0.0))
 
         
       keypoints = None
@@ -505,20 +511,41 @@ class FCNSSDMetaArch(model.DetectionModel):
         classification_loss = bb_present*tf.reduce_sum(cls_losses)
 
       # expand labels into onehot representation
-      labels_expanded = tf.zeros([])
-      for i in np.arange(0,self.num_classes,1): # expand labels
-        labels_expanded = tf.stack([labels_expanded,
-                 tf.where(tf.equal(fields.FCNExtensionFields.numpy_segmentation_map,tf.Constant(tf.float(i))),
-                   tf.ones(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)),
-                   tf.zeros(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)))],
-                 axis=3)
+      labels_expanded = [tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(0.0, dtype=tf.float32)),
+                   tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+                   tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))]
+      for i in np.arange(1,self.num_segmentation_classes,1): # expand labels
+        labels_expanded.append(tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(i, dtype=tf.float32)),
+                                    tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+                                    tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map]))))
+#        labels_expanded = [labels_expanded[:],
+#                           tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(i, dtype=tf.float32)),
+#                                    tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+#                                    tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))]
+#        print(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])
+#        labels_expanded = tf.stack([labels_expanded,
+#                 tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(i, dtype=tf.float32)),
+#                   tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+#                   tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))],
+#                 axis=3)
 
       # add unknown class
-      labels_expanded = tf.stack([labels_expanded,
-               tf.where(tf.equal(fields.FCNExtensionFields.numpy_segmentation_map,tf.Constant(255.0)),
-                 tf.ones(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)),
-                 tf.zeros(tf.shape(fields.FCNExtensionFields.numpy_segmentation_map)))],
-               axis=3)
+#      labels_expanded = tf.stack([labels_expanded,
+#               tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
+#                 tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+#                 tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))],
+#               axis=3)
+#      labels_expanded = [labels_expanded[:],
+#               tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
+#                 tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+#                 tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))]
+      labels_expanded.append(tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
+                 tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
+                 tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map]))))
+
+#      print(labels_expanded)
+      
+      labels_expanded = tf.stack(labels_expanded, axis=3)
       
       # compute segmentation loss
       segmentation_loss = segmentation_present*self._cross_entropy_loss(prediction_dict['segmentation_scores'], labels_expanded)
@@ -837,14 +864,14 @@ class FCNSSDMetaArch(model.DetectionModel):
           
       redim_s8_fuse = tf.concat(axis=3, values=_concat_values)
 
-      redim2_s8_convlayer = slim.conv2d(redim_s8_fuse, redim_sz[3], 1,
+      redim2_s8_convlayer = slim.conv2d(redim_s8_fuse, self.num_segmentation_classes, 1,
                                         scope='redim2_Conv2d_1x1',
                                         activation_fn=None)
 
       ksize=16
       stride=8
       strides = [1, stride, stride, 1]
-      in_features = redim_sz[3]
+      in_features = self.num_segmentation_classes
       f_shape = [ksize, ksize, in_features, in_features]
       weights = self._get_deconv_filter(f_shape)
 
@@ -852,7 +879,7 @@ class FCNSSDMetaArch(model.DetectionModel):
       in_shape = tf.shape(feature_maps[2])
       h = ((in_shape[1]) * stride)
       w = ((in_shape[2]) * stride)
-      new_shape = [in_shape[0], h, w, redim_sz[3]]
+      new_shape = [in_shape[0], h, w, self.num_segmentation_classes]
 
 #          new_shape = [tf.shape(_8stride_end)[0],
 #                       inputs.get_shape()[1].value,
@@ -878,7 +905,7 @@ class FCNSSDMetaArch(model.DetectionModel):
                                                         method=tf.image.ResizeMethod.BILINEAR,
                                                         align_corners=True)
 
-      logits = tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, redim_sz[3]))
+      logits = tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, self.num_segmentation_classes))
 
       prediction = upsample_s8_final_resize
 
@@ -941,6 +968,11 @@ class FCNSSDMetaArch(model.DetectionModel):
     Args:
       segmentation_gt:
     """
+    segmentation_gt = segmentation_gt[0]
+#    print(segmentation_gt)
+#    print(len(segmentation_gt))
+#    print(segmentation_gt[0])
+#    print(len(segmentation_gt[0]))
     assert(len(segmentation_gt)==6)
     self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator] = segmentation_gt[0]
     self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map] = segmentation_gt[1]

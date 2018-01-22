@@ -118,7 +118,7 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
         fields.InputDataFields.groundtruth_group_of: (
             slim_example_decoder.Tensor('image/object/group_of')),
         fields.FCNExtensionFields.numpy_segmentation_map: (
-            slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map'], self._reshape_segmentation_masks)),
+            slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/seg/height','image/seg/width'], self._reshape_segmentation_masks)),
 #            slim_example_decoder.Tensor('image/seg/numpy_segmentation_map')),
         fields.FCNExtensionFields.present_label_indicator: (
             slim_example_decoder.Tensor('present_label_indicator')),
@@ -221,6 +221,8 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
       A 2-D float tensor of shape [height, width] with values
         in {0, num_classes-1}.
     """
+#    print('keys_to_tensors:')
+#    print(keys_to_tensors)
     height = keys_to_tensors['image/seg/height']
     width = keys_to_tensors['image/seg/width']
     to_shape = tf.cast(tf.stack([-1, height, width]), tf.int32)
