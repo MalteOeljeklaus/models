@@ -216,12 +216,14 @@ def prepare_example(image_path, annotations, label_map_dict):
   
 
   numpy_segmentation_map = np.ones([height, width], dtype=np.float)*255.0 # default to ignore label
+  seg_width = width
+  seg_height = height
 
   dirname, filename = os.path.split(image_path)
   if not os.path.isfile(os.path.join(dirname, 'seg_'+filename)):
       # no car segmentation present, default
-      seg_width = -1
-      seg_height = -1
+#      seg_width = -1
+#      seg_height = -1
       seg_key = hashlib.sha256(numpy_segmentation_map).hexdigest()
   else:
       # car segmentation present
@@ -240,8 +242,8 @@ def prepare_example(image_path, annotations, label_map_dict):
 
   if 'data_road' not in dirname or not os.path.isfile(os.path.join(dirname.replace('image_2','gt_image_2'), filename.replace('_0','_road_0'))):
       # no road segmentation present, default
-      seg_width = -1
-      seg_height = -1
+#      seg_width = -1
+#      seg_height = -1
       seg_key = hashlib.sha256(numpy_segmentation_map).hexdigest()
   else:
       with tf.gfile.GFile(os.path.join(dirname.replace('image_2','gt_image_2'), filename.replace('_0','_road_0')), 'rb') as fid:
