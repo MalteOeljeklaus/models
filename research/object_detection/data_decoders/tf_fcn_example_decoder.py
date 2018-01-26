@@ -119,6 +119,8 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
             slim_example_decoder.Tensor('image/object/group_of')),
         fields.FCNExtensionFields.numpy_segmentation_map: (
             slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/seg/height','image/seg/width'], self._reshape_segmentation_masks)),
+#            slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/height','image/width'], self._reshape_segmentation_masks)), # TODO: fix this ugly hack
+#            slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/seg/height','image/seg/width'], self._reshape_segmentation_masks)),
 #            slim_example_decoder.Tensor('image/seg/numpy_segmentation_map')),
         fields.FCNExtensionFields.present_label_indicator: (
             slim_example_decoder.Tensor('present_label_indicator')),
@@ -130,6 +132,12 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
             slim_example_decoder.Tensor('image/seg/key/sha256')),
         fields.FCNExtensionFields.seg_format: (
             slim_example_decoder.Tensor('image/seg/format')),
+        fields.TfExampleFields.height: (
+            slim_example_decoder.Tensor('image/height')),
+        fields.TfExampleFields.width: (
+            slim_example_decoder.Tensor('image/width')),
+        fields.TfExampleFields.filename: (
+            slim_example_decoder.Tensor('image/filename')),
     }
     if load_instance_masks:
       self.keys_to_features['image/object/mask'] = tf.VarLenFeature(tf.float32)
@@ -183,10 +191,14 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
     keys = decoder.list_items()
     tensors = decoder.decode(serialized_example, items=keys)
     tensor_dict = dict(zip(keys, tensors))
-    is_crowd = fields.InputDataFields.groundtruth_is_crowd
-    tensor_dict[is_crowd] = tf.cast(tensor_dict[is_crowd], dtype=tf.bool)
-    tensor_dict[fields.InputDataFields.image].set_shape([None, None, 3])
-    return tensor_dict
+    with tf.control_dependencies(([tf.assert_equal(tensor_dict[fields.TfExampleFields.width],tensor_dict[fields.FCNExtensionFields.seg_width], name='scores_w_vs_label_w'),
+                                   tf.assert_equal(tensor_dict[fields.TfExampleFields.height],tensor_dict[fields.FCNExtensionFields.seg_height], name='scores_h_vs_label_h')])):
+
+     is_crowd = fields.InputDataFields.groundtruth_is_crowd
+     tensor_dict[is_crowd] = tf.cast(tensor_dict[is_crowd], dtype=tf.bool)
+     tensor_dict[fields.InputDataFields.image].set_shape([None, None, 3])
+     tensor_dict[fields.FCNExtensionFields.numpy_segmentation_map].set_shape([None, None, None])
+     return tensor_dict
 
   def _reshape_instance_masks(self, keys_to_tensors):
     """Reshape instance segmentation masks.
@@ -211,6 +223,7 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
     return tf.cast(masks, tf.float32)
 
   def _reshape_segmentation_masks(self, keys_to_tensors):
+   with tf.variable_scope('reshape_segmentation_masks'):
     """Reshape segmentation masks.
     The segmentation masks are reshaped to [height, width] .
 
@@ -223,9 +236,12 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
     """
 #    print('keys_to_tensors:')
 #    print(keys_to_tensors)
+#    height = keys_to_tensors['image/seg/height']
+#    width = keys_to_tensors['image/seg/width']
+#    print('### input image: ' + str(keys_to_tensors['image/width'].value) + 'x' + str(keys_to_tensors['image/height'].value) + ', label image: ' + str(keys_to_tensors['image/seg/width'].value) + 'x' + str(keys_to_tensors['image/seg/height'].value))
     height = keys_to_tensors['image/seg/height']
     width = keys_to_tensors['image/seg/width']
-    to_shape = tf.cast(tf.stack([-1, height, width]), tf.int32)
+    to_shape = tf.cast(tf.stack([-1, height, width]), tf.int32) # TODO: make this work for batch > 1
     masks = keys_to_tensors['image/seg/numpy_segmentation_map']
     if isinstance(masks, tf.SparseTensor):
       masks = tf.sparse_tensor_to_dense(masks)

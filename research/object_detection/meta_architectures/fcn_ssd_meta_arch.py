@@ -539,13 +539,20 @@ class FCNSSDMetaArch(model.DetectionModel):
 #               tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
 #                 tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
 #                 tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])))]
-      labels_expanded.append(tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
+      if True: # TODO: check whether ignore label is present
+        labels_expanded.append(tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(255.0)),
                  tf.ones(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map])),
                  tf.zeros(tf.shape(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map]))))
 
 #      print(labels_expanded)
       
       labels_expanded = tf.stack(labels_expanded, axis=3)
+      
+      # account for input image_resizer
+      labels_expanded = tf.image.resize_images(labels_expanded,
+                                               [tf.shape(prediction_dict['segmentation_scores'])[1],tf.shape(prediction_dict['segmentation_scores'])[2]],
+                                               method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+                                               align_corners=True)
       
       # compute segmentation loss
       segmentation_loss = segmentation_present*self._cross_entropy_loss(prediction_dict['segmentation_scores'], labels_expanded)
@@ -793,6 +800,7 @@ class FCNSSDMetaArch(model.DetectionModel):
 
 
   def _fcn_dense_output_generator(self, inputs, feature_maps, redim_sz=[100,100,100]):
+   with tf.variable_scope('FCN_dense_output_generator'):
     with tf.variable_scope('32stride'):
       redim_s32_convlayer = slim.conv2d(feature_maps[0], redim_sz[0], 1,
                                         scope='redim_Conv2d_1x1',
@@ -805,15 +813,21 @@ class FCNSSDMetaArch(model.DetectionModel):
       f_shape = [ksize, ksize, in_features, in_features]
       weights = self._get_deconv_filter(f_shape)
       new_shape = [tf.shape(feature_maps[0])[0],
-                   feature_maps[1].get_shape()[1].value+2,
-                   feature_maps[1].get_shape()[2].value+2,
+                   feature_maps[1].get_shape()[1].value,
+                   feature_maps[1].get_shape()[2].value,
                    in_features]          
 
       upsample_s32_deconvlayer = tf.nn.conv2d_transpose(redim_s32_convlayer,
                                                         weights,
                                                         output_shape=tf.stack(new_shape),
                                                         strides=strides,
-                                                        padding='VALID')
+                                                        padding='SAME')
+
+#      upsample_s32_deconvlayer = tf.image.resize_images(upsample_s32_deconvlayer,
+#                                                        [tf.shape(feature_maps[1])[1],tf.shape(feature_maps[1])[2]],
+#                                                        method=tf.image.ResizeMethod.BILINEAR,
+#                                                        align_corners=True)
+
     with tf.variable_scope('16stride'):
       redim_s16_convlayer = slim.conv2d(feature_maps[1], redim_sz[1], 1,
                                         scope='redim_Conv2d_1x1',
@@ -838,15 +852,15 @@ class FCNSSDMetaArch(model.DetectionModel):
       weights = self._get_deconv_filter(f_shape)
 
       new_shape = [tf.shape(feature_maps[1])[0],
-                   feature_maps[2].get_shape()[1].value+3, # TODO: make this work dynamically
-                   feature_maps[2].get_shape()[2].value+2,
+                   feature_maps[2].get_shape()[1].value,
+                   feature_maps[2].get_shape()[2].value,
                    in_features]
                     
       upsample_s16_deconvlayer = tf.nn.conv2d_transpose(redim_s16_fuse,
                                                         weights,
                                                         output_shape=tf.stack(new_shape),
                                                         strides=strides,
-                                                        padding='VALID')
+                                                        padding='SAME')
 
 #      upsample_s16_deconvlayer = tf.image.resize_images(upsample_s16_deconvlayer,
 #                                                        [tf.shape(feature_maps[2])[1],tf.shape(feature_maps[2])[2]],
@@ -862,7 +876,7 @@ class FCNSSDMetaArch(model.DetectionModel):
                    feature_maps[2].get_shape()[1].value,
                    feature_maps[2].get_shape()[2].value,
                    in_features]
-          
+      
       static_upsample_s16_deconvlayer = tf.reshape(upsample_s16_deconvlayer, tf.stack(new_shape)) # quick hack, see issue 833
       _concat_values = [static_upsample_s16_deconvlayer, redim_s8_convlayer]
           
@@ -880,15 +894,15 @@ class FCNSSDMetaArch(model.DetectionModel):
       weights = self._get_deconv_filter(f_shape)
 
 #          print (_8stride_end.get_shape())
-      in_shape = tf.shape(feature_maps[2])
-      h = ((in_shape[1]) * stride)
-      w = ((in_shape[2]) * stride)
-      new_shape = [in_shape[0], h, w, self.num_segmentation_classes]
+#      in_shape = tf.shape(feature_maps[2])
+#      h = ((in_shape[1]) * stride)
+#      w = ((in_shape[2]) * stride)
+#      new_shape = [in_shape[0], h, w, self.num_segmentation_classes]
 
-#          new_shape = [tf.shape(_8stride_end)[0],
-#                       inputs.get_shape()[1].value,
-#                       inputs.get_shape()[2].value,
-#                       in_features]
+      new_shape = [tf.shape(redim2_s8_convlayer)[0],
+                   inputs.get_shape()[1].value,
+                   inputs.get_shape()[2].value,
+                   in_features]
 
   #        with tf.variable_scope('dummy'):
   #          dummy_layer = tf.nn.conv2d(inputs,
@@ -910,7 +924,6 @@ class FCNSSDMetaArch(model.DetectionModel):
                                                         align_corners=True)
 
       logits = tf.reshape(tensor=upsample_s8_final_resize, shape=(-1, self.num_segmentation_classes))
-
       prediction = upsample_s8_final_resize
 
     return prediction, logits
@@ -936,6 +949,13 @@ class FCNSSDMetaArch(model.DetectionModel):
           
           height = self._groundtruth_lists[fields.FCNExtensionFields.seg_height]
           width = self._groundtruth_lists[fields.FCNExtensionFields.seg_width]
+#          height = self._groundtruth_lists[fields.TfExampleFields.height]
+#          width = self._groundtruth_lists[fields.TfExampleFields.width]
+#          print('### expecting label size: '+ str(width) + 'x' + str(height))
+
+#          height = self._groundtruth_lists[fields.FCNExtensionFields.seg_height]
+#          width = self._groundtruth_lists[fields.FCNExtensionFields.seg_width]
+
 #          height = label.get_shape()[1]
 #          width = label.get_shape()[2]
           
@@ -954,17 +974,38 @@ class FCNSSDMetaArch(model.DetectionModel):
 #          masks = tf.reshape(tf.to_float(masks), to_shape)
 #    masks = tf.reshape(tf.to_float(tf.greater(masks, 0.0)), to_shape)
 
+#          label = tf.image.resize_images(upsample_s8_deconvlayer,
+#                                                        [tf.shape(inputs)[1],tf.shape(inputs)[2]],
+#                                                        method=tf.image.ResizeMethod.BILINEAR,
+#                                                        align_corners=True)
+
+
           num_classes = label.get_shape()[3].value
-          
-          if has_unknown:
-            unknown = tf.slice(label, [0,0,0,num_classes],tf.cast(tf.stack([-1, height, width,1]), tf.int32))
-            unknown = tf.scalar_mul(1e30, unknown)
-            scores = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
-            logits = tf.reshape(tensor=scores, shape=(-1, num_classes+1))
-            label = tf.reshape(tensor=label, shape=(-1, num_classes+1))
-          else:
-            logits = tf.reshape(tensor=logits, shape=(-1, num_classes))
-            label = tf.reshape(tensor=label, shape=(-1, num_classes))
+#          width = label.get_shape()[1].value
+#          height = label.get_shape()[2].value
+          with tf.control_dependencies(([
+                  tf.assert_equal(tf.shape(scores)[0],tf.shape(label)[0], name='scores_0_vs_label_0', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                  tf.assert_equal(tf.shape(scores)[1],tf.shape(label)[1], name='scores_1_vs_label_1', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key],self._groundtruth_lists[fields.FCNExtensionFields.seg_width],self._groundtruth_lists[fields.FCNExtensionFields.seg_height]]),
+                  tf.assert_equal(tf.shape(scores)[2],tf.shape(label)[2], name='scores_2_vs_label_2', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key],self._groundtruth_lists[fields.FCNExtensionFields.seg_width],self._groundtruth_lists[fields.FCNExtensionFields.seg_height]])])):
+
+           if has_unknown: # in this case we need to expand the logits too, and disable any losses for the ignored class
+            unknown = tf.slice(label, [0,0,0,num_classes-1],tf.cast(tf.stack([1, tf.shape(label)[1], tf.shape(label)[2],1]), tf.int32)) # TODO: this will break for batchsize>1
+#            unknown = tf.slice(label, [0,0,0,num_classes-1],tf.cast(tf.stack([-1, height, width,1]), tf.int32))
+            
+            with tf.control_dependencies(([
+                    tf.assert_equal(tf.shape(label)[0],tf.shape(unknown)[0], name='label_0_vs_unknown_0', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                    tf.assert_equal(tf.shape(label)[1],tf.shape(unknown)[1], name='label_1_vs_unknown_1', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                    tf.assert_equal(tf.shape(label)[2],tf.shape(unknown)[2], name='label_2_vs_unknown_2', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                    tf.assert_equal(tf.shape(scores)[0],tf.shape(unknown)[0], name='scores_0_vs_unknown_0', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                    tf.assert_equal(tf.shape(scores)[1],tf.shape(unknown)[1], name='scores_1_vs_unknown_1', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]]),
+                    tf.assert_equal(tf.shape(scores)[2],tf.shape(unknown)[2], name='scores_2_vs_unknown_2', data=[self._groundtruth_lists[fields.FCNExtensionFields.seg_key]])])):
+             unknown = tf.scalar_mul(1e30, unknown)
+             scores = tf.concat(axis=3, values=[scores, unknown]) # see http://stackoverflow.com/a/41956383
+             logits = tf.reshape(tensor=scores, shape=(-1, num_classes), name='reshape_logits_incl_unknown')
+             label = tf.reshape(tensor=label, shape=(-1, num_classes), name='reshape_label_incl_unknown')
+           else:
+            logits = tf.reshape(tensor=scores, shape=(-1, num_classes), name='reshape_logits_wo_unknown')
+            label = tf.reshape(tensor=label, shape=(-1, num_classes), name='reshape_label_wo_unknown')
             
 #          class_weight = tf.constant([0.5,2,0.5,2,2,2,4,4,0.5,2,2,2,4,0.5,4,4,4,4,4,1]) # TODO: make configurable
 #          class_weight = tf.reshape(tensor=class_weight, shape=(1,num_classes+1))
@@ -972,7 +1013,7 @@ class FCNSSDMetaArch(model.DetectionModel):
 #          print(flat_labels.get_shape())
 #          weight_per_label = tf.transpose(tf.matmul(tf.cast(flat_labels,tf.float32), tf.transpose(tf.cast(class_weight,tf.float32) ) ) )
 #          print(weight_per_label.get_shape())
-
+          tf.assert_equal(tf.shape(logits),tf.shape(label))
           cross_entropies = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=label) # see http://stackoverflow.com/a/38912982
 #          cross_entropies = tf.multiply(weight_per_label, cross_entropies)
 #          print(cross_entropies.get_shape())
@@ -990,6 +1031,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     Args:
       segmentation_gt:
     """
+    print('### got segmentation gt')
     segmentation_gt = segmentation_gt[0]
 #    print(segmentation_gt)
 #    print(len(segmentation_gt))

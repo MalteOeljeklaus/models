@@ -138,11 +138,13 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
     keypoints_gt = read_data.get(fields.InputDataFields.groundtruth_keypoints)
 
     if fields.FCNExtensionFields.present_label_indicator in read_data: # segmentation fields present in dataset -> read them
+      print('### found FCN fields in read_data')
       present_label_indicator = read_data.get(fields.FCNExtensionFields.present_label_indicator)
       seg_width = read_data.get(fields.FCNExtensionFields.seg_width)
       seg_height = read_data.get(fields.FCNExtensionFields.seg_height)
       seg_format = read_data.get(fields.FCNExtensionFields.seg_format)
-      seg_key = read_data.get(fields.FCNExtensionFields.seg_key)
+#      seg_key = read_data.get(fields.FCNExtensionFields.seg_key)
+      seg_key = read_data.get('image/filename')
       segmentation_map = read_data.get(fields.FCNExtensionFields.numpy_segmentation_map)
 #      numpy_segmentation_map = np.asarray(numpy_segmentation_map)
 #      if present_label_indicator >= 2: # segmentation is actually present
@@ -185,6 +187,8 @@ def _create_losses(input_queue, create_model_fn, train_config):
          detection_model.num_classes,
          train_config.merge_multiple_label_boxes)
     detection_model.provide_segmentation_groundtruth(segmentation_gt)
+
+    
   else:  
     (images, _, groundtruth_boxes_list, groundtruth_classes_list,
      groundtruth_masks_list, groundtruth_keypoints_list) = get_inputs(
@@ -294,14 +298,27 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
                            get_variables_available_in_checkpoint(
                                var_map, train_config.fine_tune_checkpoint))
       init_saver = tf.train.Saver(available_var_map)
+      print('### 0')
+#      def initializer_fn_fcn_ssd(sess):
+#        variables_to_restore = slim.get_variables_to_restore(exclude=['32stride','16stride','8stride'])
+#        slim.assign_from_checkpoint(train_config.fine_tune_checkpoint,variables_to_restore) # restore parameters from pretrained model
+
       def initializer_fn(sess):
         init_saver.restore(sess, train_config.fine_tune_checkpoint)
-      init_fn = initializer_fn
 
+#      if isinstance(detection_model, fcn_ssd_meta_arch.FCNSSDMetaArch):
+#        init_fn = initializer_fn_fcn_ssd
+#      else:
+      init_fn = initializer_fn
+#      init_fn = None
+
+      print('### 1')
+      
     with tf.device(deploy_config.optimizer_device()):
       total_loss, grads_and_vars = model_deploy.optimize_clones(
           clones, training_optimizer, regularization_losses=None)
       total_loss = tf.check_numerics(total_loss, 'LossTensor is inf or nan.')
+      print('### 2')
 
       # Optionally multiply bias gradients by train_config.bias_grad_multiplier.
       if train_config.bias_grad_multiplier:
@@ -310,6 +327,7 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
             grads_and_vars,
             biases_regex_list,
             multiplier=train_config.bias_grad_multiplier)
+      print('### 3')
 
       # Optionally freeze some layers by setting their gradients to be zero.
       if train_config.freeze_variables:
@@ -321,6 +339,7 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
         with tf.name_scope('clip_grads'):
           grads_and_vars = slim.learning.clip_gradient_norms(
               grads_and_vars, train_config.gradient_clipping_by_norm)
+      print('### 4')
 
       # Create gradient updates.
       grad_updates = training_optimizer.apply_gradients(grads_and_vars,
@@ -328,8 +347,11 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
       update_ops.append(grad_updates)
 
       update_op = tf.group(*update_ops)
+      print('### 5')
+
       with tf.control_dependencies([update_op]):
         train_tensor = tf.identity(total_loss, name='train_op')
+      print('### 6')
 
     # Add summaries.
 #    for model_var in slim.get_model_variables():
@@ -338,12 +360,14 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
       global_summaries.add(tf.summary.scalar(loss_tensor.op.name, loss_tensor))
     global_summaries.add(
         tf.summary.scalar('TotalLoss', tf.losses.get_total_loss()))
+    print('### 7')
 
     # Add the summaries from the first clone. These contain the summaries
     # created by model_fn and either optimize_clones() or _gather_clone_loss().
     summaries |= set(tf.get_collection(tf.GraphKeys.SUMMARIES,
                                        first_clone_scope))
     summaries |= global_summaries
+    print('### 8')
 
     # Merge all summaries together.
     summary_op = tf.summary.merge(list(summaries), name='summary_op')
@@ -351,11 +375,13 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
     # Soft placement allows placing on CPU ops without GPU implementation.
     session_config = tf.ConfigProto(allow_soft_placement=True,
                                     log_device_placement=False)
+    print('### 9')
 
     # Save checkpoints regularly.
     keep_checkpoint_every_n_hours = train_config.keep_checkpoint_every_n_hours
     saver = tf.train.Saver(
         keep_checkpoint_every_n_hours=keep_checkpoint_every_n_hours)
+    print('### 10')
 
     slim.learning.train(
         train_tensor,

@@ -235,6 +235,7 @@ def prepare_example(image_path, annotations, label_map_dict):
       
       seg_width = int(seg_image.shape[1])
       seg_height = int(seg_image.shape[0])
+      assert(width==seg_width and height==seg_height)
       numpy_segmentation_map[seg_image==1]=1
       seg_key = hashlib.sha256(numpy_segmentation_map).hexdigest()
       
@@ -254,6 +255,7 @@ def prepare_example(image_path, annotations, label_map_dict):
 
       seg_width = int(seg_image.shape[1])
       seg_height = int(seg_image.shape[0])
+      assert(width==seg_width and height==seg_height)
       numpy_segmentation_map[seg_image[:,:,2]>0]=0
       present_label_indicator += 2 # most likely will always be 2
       assert(present_label_indicator==2)
