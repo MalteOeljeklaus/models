@@ -160,7 +160,7 @@ def _build_ssd_model(ssd_config, is_training):
    hard_example_miner) = losses_builder.build(ssd_config.loss)
   normalize_loss_by_num_matches = ssd_config.normalize_loss_by_num_matches
   
-  segmentation_loss_weight=1.0 # TODO: make configurable
+  segmentation_loss_weight=10.0 # TODO: make configurable
   
   if 'fcn' in ssd_config.feature_extractor.type: # TODO: make a fcn_ssd meta architecture in proto
     return fcn_ssd_meta_arch.FCNSSDMetaArch(
