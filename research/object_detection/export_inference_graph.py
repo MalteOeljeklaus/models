@@ -96,6 +96,7 @@ flags.DEFINE_string('trained_checkpoint_prefix', None,
                     'Path to trained checkpoint, typically of the form '
                     'path/to/model.ckpt')
 flags.DEFINE_string('output_directory', None, 'Path to write outputs.')
+flags.DEFINE_string('additional_output_tensor_names', None, 'names of additional output tensors to consider')
 
 tf.app.flags.mark_flag_as_required('pipeline_config_path')
 tf.app.flags.mark_flag_as_required('trained_checkpoint_prefix')
@@ -116,7 +117,7 @@ def main(_):
     input_shape = None
   exporter.export_inference_graph(FLAGS.input_type, pipeline_config,
                                   FLAGS.trained_checkpoint_prefix,
-                                  FLAGS.output_directory, input_shape)
+                                  FLAGS.output_directory, input_shape, additional_output_tensor_names=[FLAGS.additional_output_tensor_names])
 
 
 if __name__ == '__main__':

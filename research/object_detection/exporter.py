@@ -102,6 +102,9 @@ def freeze_graph_with_def_protos(
 
       variable_names_blacklist = (variable_names_blacklist.split(',') if
                                   variable_names_blacklist else None)
+      
+#      print([n.name for n in tf.get_default_graph().as_graph_def().node]) # negative
+
       output_graph_def = graph_util.convert_variables_to_constants(
           sess,
           input_graph_def,
@@ -350,6 +353,8 @@ def _export_inference_graph(input_type,
   inputs = tf.to_float(input_tensors)
   preprocessed_inputs = detection_model.preprocess(inputs)
   output_tensors = detection_model.predict(preprocessed_inputs)
+#  print(output_tensors) # positive
+#  print([n.name for n in tf.get_default_graph().as_graph_def().node]) # positive
   postprocessed_tensors = detection_model.postprocess(output_tensors)
   outputs = _add_output_tensor_nodes(postprocessed_tensors,
                                      output_collection_name)
