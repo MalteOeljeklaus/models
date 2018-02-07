@@ -126,13 +126,20 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
 
     print(img_name)
     
-    if 'u' in img_name:
-      img_num = int(img_name.split('_')[1].split('.')[0])
-    else:
+#    if 'um' in img_name:
+#      img_num = int(img_name.split('_')[1].split('.')[0])+30000
+#    elif 'umm' in img_name:
+#      img_num = int(img_name.split('_')[1].split('.')[0])+40000
+#    elif 'uu' in img_name:
+#      img_num = int(img_name.split('_')[1].split('.')[0])+50000
+#    else:
+#      img_num = int(img_name.split('.')[0])
+    if not 'u' in img_name:
       img_num = int(img_name.split('.')[0])
-      
-    is_validation_img = img_num < validation_set_size
-    
+      is_validation_img = img_num < validation_set_size
+    else:
+      is_validation_img = False
+
     if not 'u' in img_name and os.path.isfile(os.path.join(annotation_dir,str(img_num).zfill(6)+'.txt')):
       img_anno = read_annotation_file(os.path.join(annotation_dir,str(img_num).zfill(6)+'.txt'))
       # Filter all bounding boxes of this frame that are of a legal class, and
@@ -140,6 +147,7 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
       # TODO(talremez) filter out targets that are truncated or heavily occluded.
       annotation_for_image = filter_annotations(img_anno, classes_to_use)
     else:
+      print('skipping bounding box annotations')
       annotation_for_image = {}
 
     if 'u' in img_name:
@@ -196,23 +204,23 @@ def prepare_example(image_path, annotations, label_map_dict):
 
     difficult_obj = [0]*len(xmin_norm)
   else:
-    xmin_norm = [-1]
-    ymin_norm = [-1]
-    xmax_norm = [-1]
-    ymax_norm = [-1]
+    xmin_norm = []
+    ymin_norm = []
+    xmax_norm = []
+    ymax_norm = []
     annotations['type']=''
 
-    annotations['truncated']=[-1]
-    annotations['alpha']=[-1]
-    annotations['3d_bbox_height']=[-1]
-    annotations['3d_bbox_width']=[-1]
-    annotations['3d_bbox_length']=[-1]
-    annotations['3d_bbox_x']=[-1]
-    annotations['3d_bbox_y']=[-1]
-    annotations['3d_bbox_z']=[-1]
-    annotations['3d_bbox_rot_y']=[-1]
+    annotations['truncated']=[]
+    annotations['alpha']=[]
+    annotations['3d_bbox_height']=[]
+    annotations['3d_bbox_width']=[]
+    annotations['3d_bbox_length']=[]
+    annotations['3d_bbox_x']=[]
+    annotations['3d_bbox_y']=[]
+    annotations['3d_bbox_z']=[]
+    annotations['3d_bbox_rot_y']=[]
     
-    difficult_obj = [-1]
+    difficult_obj = []
   
 
   numpy_segmentation_map = np.ones([height, width], dtype=np.float)*255.0 # default to ignore label
@@ -236,7 +244,8 @@ def prepare_example(image_path, annotations, label_map_dict):
       seg_width = int(seg_image.shape[1])
       seg_height = int(seg_image.shape[0])
       assert(width==seg_width and height==seg_height)
-      numpy_segmentation_map[seg_image==1]=1
+      numpy_segmentation_map = np.zeros([height, width], dtype=np.float) # default to background label = 0
+      numpy_segmentation_map[seg_image==1]=2                             # car label = 2
       seg_key = hashlib.sha256(numpy_segmentation_map).hexdigest()
       
       present_label_indicator = 3
@@ -256,10 +265,24 @@ def prepare_example(image_path, annotations, label_map_dict):
       seg_width = int(seg_image.shape[1])
       seg_height = int(seg_image.shape[0])
       assert(width==seg_width and height==seg_height)
-      numpy_segmentation_map[seg_image[:,:,2]>0]=0
+      numpy_segmentation_map = np.zeros([height, width], dtype=np.float) # default to background label = 0
+      numpy_segmentation_map[seg_image[:,:,2]>0]=1  # road label = 1
       present_label_indicator += 2 # most likely will always be 2
       assert(present_label_indicator==2)
 
+  if (len(annotations['type']) != len(xmin_norm)) or (len(xmax_norm) != len(ymin_norm)) or (len(ymax_norm) != len(ymin_norm)):
+    print('len(annotations[\'type\'])='+str(len(annotations['type'])))
+    print('len(xmin_norm)='+str(len(xmin_norm)))
+    print('len(xmax_norm)='+str(len(xmax_norm)))
+    print('len(ymin_norm)='+str(len(ymin_norm)))
+    print('len(ymax_norm)='+str(len(ymax_norm)))
+    print(((annotations['type'])))
+    print(xmin_norm)
+    print(xmax_norm)
+    print(ymin_norm)
+    print(ymax_norm)
+    assert((len(annotations['type']) == len(xmin_norm)) and (len(xmax_norm) == len(ymin_norm)) and (len(ymax_norm) == len(ymin_norm)))
+    
 
   example = tf.train.Example(features=tf.train.Features(feature={
       'image/height': dataset_util.int64_feature(height),
