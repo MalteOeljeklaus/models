@@ -12,7 +12,8 @@ Uncomment lines 20 and 61-73 for a usage example and visualization
 import sys
 import os
 
-sys.path.append( os.path.normpath( os.path.join( os.path.dirname( __file__ ) , '..') ) )
+#sys.path.append( os.path.normpath( os.path.join( os.path.dirname( __file__ ) , '..') ) )
+sys.path.append( '/media/malte/samba_cityscapes/scripts' )
 
 from helpers.labels import *
 
@@ -51,7 +52,8 @@ def get_gtBoxes(input_fn, class_id, num_classes):
       if x_max - x_min <= 1 or y_max - y_min <= 1:
         continue
       boxes.append([x_min, y_min, x_max, y_max])
-      gt_classes.append(c)
+#      gt_classes.append(c)
+      gt_classes.append(class_id[c])
       ins_id.append(id % 1000)
       overlaps = np.zeros(num_classes)
       overlaps[c] = 1
