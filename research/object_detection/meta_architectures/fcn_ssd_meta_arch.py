@@ -206,7 +206,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     self._anchors = None
     self._add_summaries = add_summaries
     
-    self.num_segmentation_classes = 5 # TODO: make this configurable
+    self.num_segmentation_classes = 2 # TODO: make this configurable
 
   @property
   def anchors(self):
