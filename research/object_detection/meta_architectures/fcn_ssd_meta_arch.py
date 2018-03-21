@@ -27,6 +27,7 @@ from object_detection.core import box_predictor as bpredictor
 from object_detection.core import model
 from object_detection.core import standard_fields as fields
 from object_detection.core import target_assigner
+from object_detection.core import losses
 from object_detection.utils import shape_utils
 from object_detection.utils import visualization_utils
 
@@ -276,7 +277,7 @@ class FCNSSDMetaArch(model.DetectionModel):
         feature_map_spatial_dims,
         im_height=image_shape[1],
         im_width=image_shape[2])
-    (box_encodings, class_predictions_with_background
+    (box_encodings, class_predictions_with_background, angle_predictions
     ) = self._add_box_predictions_to_feature_maps(feature_maps)
 
     segmentation_predictions, segmentation_logits = self._fcn_dense_output_generator(preprocessed_inputs, fcn_feature_maps)
@@ -284,6 +285,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     predictions_dict = {
         'box_encodings': box_encodings,
         'class_predictions_with_background': class_predictions_with_background,
+        'angle_predictions': angle_predictions,
         'feature_maps': feature_maps,
         'anchors': self._anchors.get(),
         'segmentation_scores': segmentation_predictions,
@@ -320,6 +322,7 @@ class FCNSSDMetaArch(model.DetectionModel):
                          'length of self.anchors.NumAnchorsPerLocation().')
     box_encodings_list = []
     cls_predictions_with_background_list = []
+    angle_predictions_list = []
     for idx, (feature_map, num_anchors_per_location
              ) in enumerate(zip(feature_maps, num_anchors_per_location_list)):
       box_predictor_scope = 'BoxPredictor_{}'.format(idx)
@@ -329,6 +332,8 @@ class FCNSSDMetaArch(model.DetectionModel):
       box_encodings = box_predictions[bpredictor.BOX_ENCODINGS]
       cls_predictions_with_background = box_predictions[
           bpredictor.CLASS_PREDICTIONS_WITH_BACKGROUND]
+      angle_predictions = box_predictions[
+          bpredictor.ANGLE_PREDICTIONS]
 
       box_encodings_shape = box_encodings.get_shape().as_list()
       if len(box_encodings_shape) != 4 or box_encodings_shape[2] != 1:
@@ -339,6 +344,8 @@ class FCNSSDMetaArch(model.DetectionModel):
       box_encodings_list.append(box_encodings)
       cls_predictions_with_background_list.append(
           cls_predictions_with_background)
+      angle_predictions_list.append(
+          angle_predictions)
 
     num_predictions = sum(
         [tf.shape(box_encodings)[1] for box_encodings in box_encodings_list])
@@ -347,11 +354,17 @@ class FCNSSDMetaArch(model.DetectionModel):
         'Mismatch: number of anchors vs number of predictions', num_anchors,
         num_predictions
     ])
+          
+    print('box_encodings_list='+str(box_encodings_list))
+    print('cls_predictions_with_background_list='+str(cls_predictions_with_background_list))
+    print('angle_predictions_list='+str(angle_predictions_list))
     with tf.control_dependencies([anchors_assert]):
       box_encodings = tf.concat(box_encodings_list, 1)
       class_predictions_with_background = tf.concat(
           cls_predictions_with_background_list, 1)
-    return box_encodings, class_predictions_with_background
+      angle_predictions = tf.concat(
+          angle_predictions_list, 1)
+    return box_encodings, class_predictions_with_background, angle_predictions
 
   def _get_feature_map_spatial_dims(self, feature_maps):
     """Return list of spatial dimensions for each feature map in a list.
@@ -458,6 +471,9 @@ class FCNSSDMetaArch(model.DetectionModel):
         `classification_loss`) to scalar tensors representing corresponding loss
         values.
     """
+    
+    print('loss()->prediction_dict='+str(prediction_dict))
+    
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
 
 #      print (type(self._groundtruth_lists[fields.FCNExtensionFields.present_label_indicator]))
@@ -475,10 +491,15 @@ class FCNSSDMetaArch(model.DetectionModel):
       keypoints = None
       if self.groundtruth_has_field(fields.BoxListFields.keypoints):
         keypoints = self.groundtruth_lists(fields.BoxListFields.keypoints)
+
+      print('self.groundtruth_lists(fields.BoxListFields.boxes)='+str(self.groundtruth_lists(fields.BoxListFields.boxes)))
+      print('self.groundtruth_lists(fields.BoxListFields.classes)='+str(self.groundtruth_lists(fields.BoxListFields.classes)))
+      print('self.groundtruth_lists(fields.FCNExtensionFields.object_alpha)='+str(self.groundtruth_lists(fields.FCNExtensionFields.object_alpha)))
       (batch_cls_targets, batch_cls_weights, batch_reg_targets,
-       batch_reg_weights, match_list) = self._assign_targets(
+       batch_reg_weights, match_list, groundtruth_angles_list) = self._assign_targets(
            self.groundtruth_lists(fields.BoxListFields.boxes),
            self.groundtruth_lists(fields.BoxListFields.classes),
+           self.groundtruth_lists(fields.FCNExtensionFields.object_alpha),
            keypoints)
       if self._add_summaries:
         self._summarize_input(
@@ -488,6 +509,14 @@ class FCNSSDMetaArch(model.DetectionModel):
       location_losses = self._localization_loss(
           prediction_dict['box_encodings'],
           batch_reg_targets,
+          ignore_nan_targets=True,
+          weights=batch_reg_weights)
+      
+      _angle_loss = losses.WeightedSmoothL1AngleLoss(anchorwise_output=True) # TODO: make this configurable
+      
+      angle_losses =  _angle_loss(
+          prediction_dict['angle_predictions'],
+          groundtruth_angles_list,
           ignore_nan_targets=True,
           weights=batch_reg_weights)
       cls_losses = self._classification_loss(
@@ -507,8 +536,12 @@ class FCNSSDMetaArch(model.DetectionModel):
           flattened_classification_losses = tf.reshape(cls_losses, [-1])
           self._summarize_anchor_classification_loss(
               flattened_class_ids, flattened_classification_losses)
-        localization_loss = bb_present*tf.reduce_sum(location_losses)
-        classification_loss = bb_present*tf.reduce_sum(cls_losses)
+        localization_loss = tf.reduce_sum(location_losses)
+        classification_loss = tf.reduce_sum(cls_losses)
+
+      localization_loss = bb_present*localization_loss
+      classification_loss = bb_present*classification_loss
+      angle_loss = bb_present*tf.reduce_sum(angle_losses)
 
       # expand labels into onehot representation
       labels_expanded = [tf.where(tf.equal(self._groundtruth_lists[fields.FCNExtensionFields.numpy_segmentation_map],tf.constant(0.0, dtype=tf.float32)),
@@ -565,17 +598,21 @@ class FCNSSDMetaArch(model.DetectionModel):
       with tf.name_scope('localization_loss'):
         localization_loss = ((self._localization_loss_weight / normalizer) *
                              localization_loss)
+      with tf.name_scope('angle_loss'):
+        angle_loss = ((1.0 / normalizer) *
+                             angle_loss)
       with tf.name_scope('classification_loss'):
         classification_loss = ((self._classification_loss_weight / normalizer) *
                                classification_loss)
       with tf.name_scope('segmentation_loss'):
-        segmentation_loss = ((self._segmentation_loss_weight / normalizer) *
+        segmentation_loss = ((self._segmentation_loss_weight) *
                                segmentation_loss)
 
       loss_dict = {
           'localization_loss': localization_loss,
           'classification_loss': classification_loss,
-          'segmentation_loss': segmentation_loss
+          'segmentation_loss': segmentation_loss,
+          'angle_loss': angle_loss
       }
     return loss_dict
 
@@ -591,7 +628,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     visualization_utils.add_cdf_image_summary(negative_anchor_cls_loss,
                                               'NegativeAnchorLossCDF')
 
-  def _assign_targets(self, groundtruth_boxes_list, groundtruth_classes_list,
+  def _assign_targets(self, groundtruth_boxes_list, groundtruth_classes_list, groundtruth_angles_list,
                       groundtruth_keypoints_list=None):
     """Assign groundtruth targets.
 
@@ -629,13 +666,21 @@ class FCNSSDMetaArch(model.DetectionModel):
         tf.pad(one_hot_encoding, [[0, 0], [1, 0]], mode='CONSTANT')
         for one_hot_encoding in groundtruth_classes_list
     ]
+    
+#    groundtruth_angles_list = [g for g in groundtruth_angles_list] # shouldn't this be an identity mapping?
+    
     if groundtruth_keypoints_list is not None:
       for boxlist, keypoints in zip(
           groundtruth_boxlists, groundtruth_keypoints_list):
         boxlist.add_field(fields.BoxListFields.keypoints, keypoints)
+
+    print('groundtruth_boxlists='+str(groundtruth_boxlists))
+    print('groundtruth_classes_with_background_list='+str(groundtruth_classes_with_background_list))
+    print('groundtruth_angles_list='+str(groundtruth_angles_list))
+
     return target_assigner.batch_assign_targets(
         self._target_assigner, self.anchors, groundtruth_boxlists,
-        groundtruth_classes_with_background_list)
+        groundtruth_classes_with_background_list, groundtruth_angles_list)
 
   def _summarize_input(self, groundtruth_boxes_list, match_list):
     """Creates tensorflow summaries for the input boxes and anchors.
@@ -799,7 +844,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     return var
 
 
-  def _fcn_dense_output_generator(self, inputs, feature_maps, redim_sz=[100,100,100]):
+  def _fcn_dense_output_generator(self, inputs, feature_maps, redim_sz=[10,10,10]):
    with tf.variable_scope('FCN_dense_output_generator'):
     with tf.variable_scope('32stride'):
       redim_s32_convlayer = slim.conv2d(feature_maps[0], redim_sz[0], 1,
@@ -1044,3 +1089,17 @@ class FCNSSDMetaArch(model.DetectionModel):
     self._groundtruth_lists[fields.FCNExtensionFields.seg_height] = segmentation_gt[3]
     self._groundtruth_lists[fields.FCNExtensionFields.seg_format] = segmentation_gt[4]
     self._groundtruth_lists[fields.FCNExtensionFields.seg_key] = segmentation_gt[5]
+
+  def provide_angle_groundtruth(self,
+                          angle_gt):
+    """Provide angle groundtruth.
+
+    Args:
+      angle_gt:
+    """
+    print('### got angle gt')
+    print('angle_gt='+str(angle_gt))
+#    angle_gt = angle_gt[0]
+#    print('angle_gt='+str(angle_gt))
+    self._groundtruth_lists[fields.FCNExtensionFields.object_alpha] = angle_gt
+    
