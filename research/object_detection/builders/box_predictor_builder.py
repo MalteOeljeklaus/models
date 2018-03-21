@@ -68,6 +68,27 @@ def build(argscope_fn, box_predictor_config, is_training, num_classes):
     )
     return box_predictor_object
 
+  if  box_predictor_oneof == 'convolutional_box_angle_predictor':
+    conv_box_predictor = box_predictor_config.convolutional_box_angle_predictor
+    conv_hyperparams = argscope_fn(conv_box_predictor.conv_hyperparams,
+                                   is_training)
+    box_predictor_object = box_predictor.ConvolutionalBoxAnglePredictor(
+        is_training=is_training,
+        num_classes=num_classes,
+        conv_hyperparams=conv_hyperparams,
+        min_depth=conv_box_predictor.min_depth,
+        max_depth=conv_box_predictor.max_depth,
+        num_layers_before_predictor=(conv_box_predictor.
+                                     num_layers_before_predictor),
+        use_dropout=conv_box_predictor.use_dropout,
+        dropout_keep_prob=conv_box_predictor.dropout_keep_probability,
+        kernel_size=conv_box_predictor.kernel_size,
+        box_code_size=conv_box_predictor.box_code_size,
+        apply_sigmoid_to_scores=conv_box_predictor.apply_sigmoid_to_scores,
+        class_prediction_bias_init=conv_box_predictor.class_prediction_bias_init
+    )
+    return box_predictor_object
+
   if box_predictor_oneof == 'mask_rcnn_box_predictor':
     mask_rcnn_box_predictor = box_predictor_config.mask_rcnn_box_predictor
     fc_hyperparams = argscope_fn(mask_rcnn_box_predictor.fc_hyperparams,

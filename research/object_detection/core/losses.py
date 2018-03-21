@@ -36,6 +36,7 @@ from object_detection.utils import ops
 
 slim = tf.contrib.slim
 
+import numpy as np
 
 class Loss(object):
   """Abstract base class for loss functions."""
@@ -156,6 +157,49 @@ class WeightedSmoothL1LocalizationLoss(Loss):
     """
     diff = prediction_tensor - target_tensor
     abs_diff = tf.abs(diff)
+    abs_diff_lt_1 = tf.less(abs_diff, 1)
+    anchorwise_smooth_l1norm = tf.reduce_sum(
+        tf.where(abs_diff_lt_1, 0.5 * tf.square(abs_diff), abs_diff - 0.5),
+        2) * weights
+    if self._anchorwise_output:
+      return anchorwise_smooth_l1norm
+    return tf.reduce_sum(anchorwise_smooth_l1norm)
+
+class WeightedSmoothL1AngleLoss(Loss):
+  """Smooth L1 localization loss function.
+
+  The smooth L1_loss is defined elementwise as .5 x^2 if |x|<1 and |x|-.5
+  otherwise, where x is the difference between predictions and target.
+
+  See also Equation (3) in the Fast R-CNN paper by Ross Girshick (ICCV 2015)
+  """
+
+  def __init__(self, anchorwise_output=False):
+    """Constructor.
+
+    Args:
+      anchorwise_output: Outputs loss per anchor. (default False)
+
+    """
+    self._anchorwise_output = anchorwise_output
+
+  def _compute_loss(self, prediction_tensor, target_tensor, weights):
+    """Compute loss function.
+
+    Args:
+      prediction_tensor: A float tensor of shape [batch_size, num_anchors,
+        code_size] representing the (encoded) predicted locations of objects.
+      target_tensor: A float tensor of shape [batch_size, num_anchors,
+        code_size] representing the regression targets
+      weights: a float tensor of shape [batch_size, num_anchors]
+
+    Returns:
+      loss: a (scalar) tensor representing the value of the loss function
+    """
+    diff = prediction_tensor - target_tensor
+    abs_diff = tf.abs(diff)
+    tf.while_loop(lambda abs_diff: tf.greater_equal(  tf.reshape(tf.reduce_max(abs_diff,axis=1, keep_dims=False),[1])[0], 2.*np.pi), \
+                  lambda abs_diff: tf.where(tf.greater_equal(abs_diff, 2.*np.pi),abs_diff,tf.subtract(abs_diff, 2.*np.pi)), [abs_diff])
     abs_diff_lt_1 = tf.less(abs_diff, 1)
     anchorwise_smooth_l1norm = tf.reduce_sum(
         tf.where(abs_diff_lt_1, 0.5 * tf.square(abs_diff), abs_diff - 0.5),

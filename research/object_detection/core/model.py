@@ -231,6 +231,9 @@ class DetectionModel(object):
         Keypoints are assumed to be provided in normalized coordinates and
         missing keypoints should be encoded as NaN.
     """
+    
+    print('\ngroundtruth_classes_list='+str(groundtruth_classes_list)+'\n')
+    
     self._groundtruth_lists[fields.BoxListFields.boxes] = groundtruth_boxes_list
     self._groundtruth_lists[
         fields.BoxListFields.classes] = groundtruth_classes_list

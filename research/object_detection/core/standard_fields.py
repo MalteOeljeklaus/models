@@ -222,3 +222,4 @@ class FCNExtensionFields(object):
   seg_key = 'image/seg/key/sha256'
   numpy_segmentation_map = 'image/seg/numpy_segmentation_map'
   seg_format = 'image/seg/format'
+  object_alpha = 'image/object/alpha'

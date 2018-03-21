@@ -43,6 +43,7 @@ from object_detection.core import region_similarity_calculator as sim_calc
 from object_detection.matchers import argmax_matcher
 from object_detection.matchers import bipartite_matcher
 
+import numpy as np
 
 class TargetAssigner(object):
   """Target assigner to compute classification and regression targets."""
@@ -93,7 +94,7 @@ class TargetAssigner(object):
   def box_coder(self):
     return self._box_coder
 
-  def assign(self, anchors, groundtruth_boxes, groundtruth_labels=None,
+  def assign(self, anchors, groundtruth_boxes, groundtruth_labels, groundtruth_angles,
              **params):
     """Assign classification and regression targets to each anchor.
 
@@ -158,6 +159,9 @@ class TargetAssigner(object):
                                                     match)
       cls_targets = self._create_classification_targets(groundtruth_labels,
                                                         match)
+      angle_reg_targets = self._create_regression_targets_angle(anchors,
+                                                    groundtruth_angles,
+                                                    match)
       reg_weights = self._create_regression_weights(match)
       cls_weights = self._create_classification_weights(
           match, self._positive_class_weight, self._negative_class_weight)
@@ -169,7 +173,7 @@ class TargetAssigner(object):
         reg_weights = self._reset_target_shape(reg_weights, num_anchors)
         cls_weights = self._reset_target_shape(cls_weights, num_anchors)
 
-    return cls_targets, cls_weights, reg_targets, reg_weights, match
+    return cls_targets, cls_weights, reg_targets, reg_weights, match, angle_reg_targets
 
   def _reset_target_shape(self, target, num_anchors):
     """Sets the static shape of the target.
@@ -217,6 +221,49 @@ class TargetAssigner(object):
     # TODO: summarize the number of matches on average.
     return reg_targets
 
+  def _create_regression_targets_angle(self, anchors, groundtruth_angles, match):
+    """Returns a regression target for each anchor.
+
+    Args:
+      anchors: a BoxList representing N anchors
+      groundtruth_boxes: a BoxList representing M groundtruth_boxes
+      match: a matcher.Match object
+
+    Returns:
+      reg_targets: a float32 tensor with shape [N, box_code_dimension]
+    """
+    matched_anchor_indices = match.matched_column_indices()
+    unmatched_ignored_anchor_indices = (match.
+                                        unmatched_or_ignored_column_indices())
+    matched_gt_indices = match.matched_row_indices()
+#    matched_anchors = box_list_ops.gather(anchors,
+#                                          matched_anchor_indices)
+#    matched_reg_targets = box_list_ops.gather(groundtruth_angles,
+#                                           matched_gt_indices)
+
+    matched_reg_targets = tf.gather(groundtruth_angles, matched_gt_indices)
+    print('_create_regression_targets_angle()->groundtruth_angles='+str(groundtruth_angles))
+
+#    matched_reg_targets = self._box_coder.encode(matched_gt_boxes,
+#                                                 matched_anchors)
+    unmatched_ignored_reg_targets = tf.tile(
+        tf.reshape(tf.constant(np.nan),[-1, 1]),
+        tf.stack([tf.size(unmatched_ignored_anchor_indices), 1]))
+    
+#    unmatched_reg_targets = tf.gather(groundtruth_angles, matched_gt_indices)
+
+    print('_create_regression_targets_angle()->_default_regression_target()='+str(self._default_regression_target()))
+    print('_create_regression_targets_angle()->matched_anchor_indices='+str(matched_anchor_indices))
+    print('_create_regression_targets_angle()->unmatched_ignored_anchor_indices='+str(unmatched_ignored_anchor_indices))
+    print('_create_regression_targets_angle()->matched_reg_targets='+str(matched_reg_targets))
+    print('_create_regression_targets_angle()->unmatched_ignored_reg_targets='+str(unmatched_ignored_reg_targets))
+
+    reg_targets = tf.dynamic_stitch(
+        [matched_anchor_indices, unmatched_ignored_anchor_indices],
+        [matched_reg_targets, unmatched_ignored_reg_targets])
+    # TODO: summarize the number of matches on average.
+    return reg_targets
+
   def _default_regression_target(self):
     """Returns the default target for anchors to regress to.
 
@@ -254,12 +301,18 @@ class TargetAssigner(object):
                                         unmatched_or_ignored_column_indices())
     matched_gt_indices = match.matched_row_indices()
     matched_cls_targets = tf.gather(groundtruth_labels, matched_gt_indices)
+    print('_create_classification_targets()->groundtruth_labels='+str(groundtruth_labels))
 
     ones = self._unmatched_cls_target.shape.ndims * [1]
     unmatched_ignored_cls_targets = tf.tile(
         tf.expand_dims(self._unmatched_cls_target, 0),
         tf.stack([tf.size(unmatched_ignored_anchor_indices)] + ones))
-
+    
+    print('_create_classification_targets()->matched_anchor_indices='+str(matched_anchor_indices))
+    print('_create_classification_targets()->unmatched_ignored_anchor_indices='+str(unmatched_ignored_anchor_indices))
+    print('_create_classification_targets()->matched_cls_targets='+str(matched_cls_targets))
+    print('_create_classification_targets()->unmatched_ignored_cls_targets='+str(unmatched_ignored_cls_targets))
+    
     cls_targets = tf.dynamic_stitch(
         [matched_anchor_indices, unmatched_ignored_anchor_indices],
         [matched_cls_targets, unmatched_ignored_cls_targets])
@@ -391,7 +444,8 @@ def create_target_assigner(reference, stage=None,
 def batch_assign_targets(target_assigner,
                          anchors_batch,
                          gt_box_batch,
-                         gt_class_targets_batch):
+                         gt_class_targets_batch,
+                         gt_angle_targets_batch):
   """Batched assignment of classification and regression targets.
 
   Args:
@@ -435,15 +489,23 @@ def batch_assign_targets(target_assigner,
   cls_targets_list = []
   cls_weights_list = []
   reg_targets_list = []
+  angle_targets_list = []
   reg_weights_list = []
   match_list = []
-  for anchors, gt_boxes, gt_class_targets in zip(
-      anchors_batch, gt_box_batch, gt_class_targets_batch):
+  
+  print('anchors_batch='+str(anchors_batch))
+  print('gt_box_batch='+str(anchors_batch))
+  print('gt_class_targets_batch='+str(gt_class_targets_batch))
+  print('gt_angle_targets_batch='+str(gt_angle_targets_batch))
+  
+  for anchors, gt_boxes, gt_class_targets, gt_angle_targets in zip(
+      anchors_batch, gt_box_batch, gt_class_targets_batch, gt_angle_targets_batch):
     (cls_targets, cls_weights, reg_targets,
-     reg_weights, match) = target_assigner.assign(
-         anchors, gt_boxes, gt_class_targets)
+     reg_weights, match, angle_reg_targets) = target_assigner.assign(
+         anchors, gt_boxes, gt_class_targets, gt_angle_targets)
     cls_targets_list.append(cls_targets)
     cls_weights_list.append(cls_weights)
+    angle_targets_list.append(angle_reg_targets)
     reg_targets_list.append(reg_targets)
     reg_weights_list.append(reg_weights)
     match_list.append(match)
@@ -452,4 +514,4 @@ def batch_assign_targets(target_assigner,
   batch_reg_targets = tf.stack(reg_targets_list)
   batch_reg_weights = tf.stack(reg_weights_list)
   return (batch_cls_targets, batch_cls_weights, batch_reg_targets,
-          batch_reg_weights, match_list)
+          batch_reg_weights, match_list, angle_targets_list)
