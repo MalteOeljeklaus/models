@@ -198,8 +198,8 @@ class WeightedSmoothL1AngleLoss(Loss):
     """
     diff = prediction_tensor - target_tensor
     abs_diff = tf.abs(diff)
-    tf.while_loop(lambda abs_diff: tf.greater_equal(  tf.reshape(tf.reduce_max(abs_diff,axis=1, keep_dims=False),[1])[0], 2.*np.pi), \
-                  lambda abs_diff: tf.where(tf.greater_equal(abs_diff, 2.*np.pi),abs_diff,tf.subtract(abs_diff, 2.*np.pi)), [abs_diff])
+    tf.while_loop(lambda abs_diff: tf.greater_equal(  tf.reshape(tf.reduce_max(abs_diff,axis=1, keep_dims=False),[1])[0], np.pi), \
+                  lambda abs_diff: tf.where(tf.greater_equal(abs_diff, np.pi),abs_diff,tf.abs(tf.subtract(abs_diff, 2.*np.pi))), [abs_diff])
     abs_diff_lt_1 = tf.less(abs_diff, 1)
     anchorwise_smooth_l1norm = tf.reduce_sum(
         tf.where(abs_diff_lt_1, 0.5 * tf.square(abs_diff), abs_diff - 0.5),
