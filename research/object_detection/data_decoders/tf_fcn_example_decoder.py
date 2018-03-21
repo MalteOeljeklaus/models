@@ -77,6 +77,8 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
             tf.VarLenFeature(tf.string),
         'image/object/area':
             tf.VarLenFeature(tf.float32),
+        'image/object/alpha':
+            tf.VarLenFeature(tf.float32),
         'image/object/is_crowd':
             tf.VarLenFeature(tf.int64),
         'image/object/difficult':
@@ -117,6 +119,8 @@ class TfFCNExampleDecoder(data_decoder.DataDecoder):
             slim_example_decoder.Tensor('image/object/difficult')),
         fields.InputDataFields.groundtruth_group_of: (
             slim_example_decoder.Tensor('image/object/group_of')),
+        fields.FCNExtensionFields.object_alpha: (
+            slim_example_decoder.Tensor('image/object/alpha')),
         fields.FCNExtensionFields.numpy_segmentation_map: (
             slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/seg/height','image/seg/width'], self._reshape_segmentation_masks)),
 #            slim_example_decoder.ItemHandlerCallback(['image/seg/numpy_segmentation_map','image/height','image/width'], self._reshape_segmentation_masks)), # TODO: fix this ugly hack

@@ -120,6 +120,9 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
   label_id_offset = 1
   def extract_images_and_targets(read_data):
     """Extract images and targets from the input dict."""
+    
+    print('merge_multiple_label_boxes='+str(merge_multiple_label_boxes))
+    
     image = read_data[fields.InputDataFields.image]
     key = ''
     if fields.InputDataFields.source_id in read_data:
@@ -127,6 +130,7 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
     location_gt = read_data[fields.InputDataFields.groundtruth_boxes]
     classes_gt = tf.cast(read_data[fields.InputDataFields.groundtruth_classes],
                          tf.int32)
+    print('classes_gt='+str(classes_gt))
     classes_gt -= label_id_offset
     if merge_multiple_label_boxes:
       location_gt, classes_gt, _ = util_ops.merge_boxes_with_multiple_labels(
@@ -134,6 +138,7 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
     else:
       classes_gt = util_ops.padded_one_hot_encoding(
           indices=classes_gt, depth=num_classes, left_pad=0)
+      print('classes_gt='+str(classes_gt))
     masks_gt = read_data.get(fields.InputDataFields.groundtruth_instance_masks)
     keypoints_gt = read_data.get(fields.InputDataFields.groundtruth_keypoints)
 
@@ -143,6 +148,8 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
       seg_width = read_data.get(fields.FCNExtensionFields.seg_width)
       seg_height = read_data.get(fields.FCNExtensionFields.seg_height)
       seg_format = read_data.get(fields.FCNExtensionFields.seg_format)
+      alpha_gt = read_data.get(fields.FCNExtensionFields.object_alpha)
+      alpha_gt = tf.reshape(alpha_gt, [-1, 1])
 #      seg_key = read_data.get(fields.FCNExtensionFields.seg_key)
       seg_key = read_data.get('image/filename')
       segmentation_map = read_data.get(fields.FCNExtensionFields.numpy_segmentation_map)
@@ -159,9 +166,11 @@ def get_inputs(input_queue, num_classes, merge_multiple_label_boxes=False):
 #                                       tf.reshape(numpy_segmentation_map,[-1, 100]),
 #                                       tf.zeros([]),
 #                                       tf.zeros([]))
-      
+      print('location_gt='+str(location_gt))
+      print('classes_gt='+str(classes_gt))
+      print('alpha_gt='+str(alpha_gt))
       segmentation_gt = [present_label_indicator, segmentation_map, seg_width, seg_height, seg_format, seg_key]
-      return image, key, location_gt, classes_gt, masks_gt, keypoints_gt, segmentation_gt
+      return image, key, location_gt, classes_gt, masks_gt, keypoints_gt, segmentation_gt, alpha_gt
 
 
     if (merge_multiple_label_boxes and (
@@ -182,12 +191,16 @@ def _create_losses(input_queue, create_model_fn, train_config):
   detection_model = create_model_fn()
   if isinstance(detection_model, fcn_ssd_meta_arch.FCNSSDMetaArch): # TODO: how to check for segmentation dataset here?
     (images, _, groundtruth_boxes_list, groundtruth_classes_list,
-     groundtruth_masks_list, groundtruth_keypoints_list, segmentation_gt) = get_inputs(
+     groundtruth_masks_list, groundtruth_keypoints_list, segmentation_gt, alpha_gt) = get_inputs(
          input_queue,
          detection_model.num_classes,
          train_config.merge_multiple_label_boxes)
+    
+    print('\ngroundtruth_classes_list='+str(groundtruth_classes_list))
+    print('alpha_gt='+str(alpha_gt)+'\n')
+    
     detection_model.provide_segmentation_groundtruth(segmentation_gt)
-
+    detection_model.provide_angle_groundtruth(alpha_gt)
     
   else:  
     (images, _, groundtruth_boxes_list, groundtruth_classes_list,
