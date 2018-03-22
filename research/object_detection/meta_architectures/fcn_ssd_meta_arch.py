@@ -206,7 +206,7 @@ class FCNSSDMetaArch(model.DetectionModel):
     self._anchors = None
     self._add_summaries = add_summaries
     
-    self.num_segmentation_classes = 5 # TODO: make this configurable
+    self.num_segmentation_classes = 2 # TODO: make this configurable
 
   @property
   def anchors(self):
@@ -420,6 +420,7 @@ class FCNSSDMetaArch(model.DetectionModel):
       raise ValueError('prediction_dict does not contain expected entries.')
     with tf.name_scope('Postprocessor'):
       box_encodings = prediction_dict['box_encodings']
+      angle_predictions = prediction_dict['angle_predictions']
       class_predictions = prediction_dict['class_predictions_with_background']
       detection_boxes, detection_keypoints = self._batch_decode(box_encodings)
       detection_boxes = tf.expand_dims(detection_boxes, axis=2)
@@ -433,7 +434,12 @@ class FCNSSDMetaArch(model.DetectionModel):
       additional_fields = None
       if detection_keypoints is not None:
         additional_fields = {
-            fields.BoxListFields.keypoints: detection_keypoints}
+            fields.BoxListFields.keypoints: detection_keypoints,
+            fields.FCNExtensionFields.object_alpha: angle_predictions}
+      else:
+        additional_fields = {
+            fields.FCNExtensionFields.object_alpha: angle_predictions}
+        
       (nmsed_boxes, nmsed_scores, nmsed_classes, _, nmsed_additional_fields,
        num_detections) = self._non_max_suppression_fn(
            detection_boxes,
@@ -448,6 +454,10 @@ class FCNSSDMetaArch(model.DetectionModel):
           fields.BoxListFields.keypoints in nmsed_additional_fields):
         detection_dict['detection_keypoints'] = nmsed_additional_fields[
             fields.BoxListFields.keypoints]
+      if (nmsed_additional_fields is not None and
+          fields.FCNExtensionFields.object_alpha in nmsed_additional_fields):
+        detection_dict['detection_alpha'] = nmsed_additional_fields[
+            fields.FCNExtensionFields.object_alpha]
       return detection_dict
 
   def loss(self, prediction_dict, scope=None):
